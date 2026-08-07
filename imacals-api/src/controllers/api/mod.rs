@@ -1,0 +1,16 @@
+pub mod default_controller;
+pub mod api_auth_controller;
+pub mod role_controller;
+pub mod organization_controller;
+pub mod organization_user_role_controller;
+pub mod user_controller;
+pub mod geo_controller;
+pub mod polygon_controller;
+pub mod polygon_neighbor_controller;
+pub mod polygon_zone_controller;
+pub mod user_document_controller;
+pub mod user_bank_account_controller;
+pub mod domain_controller;
+pub mod domain_system_user_controller;
+pub mod integration_controller;
+pub mod attribute_controller;

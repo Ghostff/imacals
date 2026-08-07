@@ -1,0 +1,8 @@
+**/node_modules/
+**/.env
+ai/history.json
+**/target/
+**/dist/
+.idea
+.env
+

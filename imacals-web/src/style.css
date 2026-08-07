@@ -1,0 +1,164 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500&family=Public+Sans:wght@400;500&family=Space+Grotesk:wght@400;500&display=swap');
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Same token contract as imacals-dashboard/src/style.css — the two apps must stay in step so a
+   palette change in docs/design.md lands on the storefront and the back office together. */
+:root {
+  /* Colors — light ("Heritage") */
+  --color-primary:   #1A1C1E;
+  --color-secondary: #6C7278;
+  --color-tertiary:  #B8422E;
+  --color-neutral:   #F7F5F2;
+  --color-surface:   #FFFFFF;
+  /* Text/icon color that sits on a primary- or tertiary-filled surface. */
+  --color-on-primary: #FFFFFF;
+
+  /* Derived from the palette so a theme swap carries hairlines and overlays with it. */
+  --color-border:  color-mix(in srgb, var(--color-secondary) 28%, transparent);
+  --color-divider: color-mix(in srgb, var(--color-secondary) 16%, transparent);
+  --color-overlay: color-mix(in srgb, var(--color-primary) 35%, transparent);
+
+  /* Typography */
+  --font-display: 'Fraunces', serif;
+  --font-body:    'Public Sans', sans-serif;
+  --font-label:   'Space Grotesk', sans-serif;
+
+  /* Spacing */
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 32px;
+
+  /* Border radius */
+  --rounded-sm: 2px;
+  --rounded-md: 4px;
+  --rounded-lg: 8px;
+
+  /* Layout */
+  --header-height: 64px;
+  --page-max:      1180px;
+}
+
+/* Dark ("Graphite") — see docs/design.md. Only colours change; type, spacing and radii are shared. */
+:root[data-theme='dark'] {
+  --color-primary:   #ECEDEE;
+  --color-secondary: #9CA3AF;
+  --color-tertiary:  #B4FF39;
+  --color-neutral:   #0E1013;
+  --color-surface:   #17191C;
+  --color-on-primary: #0E1013;
+
+  /* Hairlines need more presence against a near-black canvas than against paper. */
+  --color-border:  color-mix(in srgb, var(--color-secondary) 34%, transparent);
+  --color-divider: color-mix(in srgb, var(--color-secondary) 20%, transparent);
+  --color-overlay: color-mix(in srgb, #000000 62%, transparent);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  background-color: var(--color-neutral);
+  color: var(--color-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Shared primitives ──────────────────────────────────────────────────── */
+
+.page {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--spacing-lg) var(--spacing-md);
+}
+
+.eyebrow {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* The single Tertiary action. One per screen — see docs/design.md. */
+.btn-primary {
+  font-family: var(--font-label);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  background-color: var(--color-tertiary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--rounded-md);
+  padding: 12px 20px;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  font-family: var(--font-label);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  padding: 11px 19px;
+  cursor: pointer;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.field-label {
+  display: block;
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--color-secondary);
+  margin-bottom: 6px;
+}
+
+.field-input {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--color-primary);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  padding: 10px 12px;
+}
+
+.field-input:focus {
+  outline: 2px solid var(--color-tertiary);
+  outline-offset: -1px;
+}
+
+.state-msg {
+  font-family: var(--font-label);
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+  padding: var(--spacing-lg) 0;
+}
+
+.state-msg--error {
+  color: var(--color-tertiary);
+}

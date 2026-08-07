@@ -1,0 +1,205 @@
+services:
+  imacals-db:
+    container_name: imacals-db
+    image: postgres:17-alpine
+    environment:
+      # Default must match DB_NAME in imacals-api/.env — the healthcheck below reads the env_file
+      # copy, so a divergent default creates a database the healthcheck then can't find.
+      POSTGRES_DB: "${DB_NAME:-imacals}"
+      POSTGRES_USER: "${DB_USERNAME:-user}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-password}"
+      POSTGRES_INIT_ARGS: "${DB_INIT_ARGS}"
+    # Host port is separate from the in-container port so a local postgres on 5432 doesn't clash.
+    ports:
+      - "${DB_HOST_PORT:-5437}:${DB_PORT:-5432}"
+    env_file:
+      - ./imacals-api/.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USERNAME} -d $${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  imacals-api:
+    tty: true
+    stdin_open: true
+    container_name: imacals-api
+    build:
+      context: ./imacals-api
+      dockerfile: Dockerfile
+      target: dev
+    env_file:
+      - ./imacals-api/.env
+    ports:
+      - "${APP_PORT:-3032}:${APP_PORT:-3032}"
+    depends_on:
+      imacals-db:
+        condition: service_healthy
+      imacals-minio:
+        condition: service_healthy
+      imacals-mail:
+        condition: service_started
+    # Not on-failure: a restart loop on a compile/boot error buries the real message in
+    # repeated boot logs. Let it stay down so `docker-compose logs imacals-api` shows the cause.
+    restart: "no"
+    volumes:
+      - ./imacals-api:/app:cached
+      # Container-private target/ so the build doesn't share cargo's artifact lock with the
+      # host's rust-analyzer (shared target/ → "Blocking waiting for file lock", ~5x slower).
+      - imacals_api_target:/app/target
+
+  imacals-dashboard:
+    container_name: imacals-dashboard
+    build:
+      context: ./imacals-dashboard
+      dockerfile: Dockerfile
+      target: dev
+    env_file:
+      - ./imacals-dashboard/.env
+    ports:
+      - "${DASHBOARD_HOST_PORT:-5174}:5174"
+    volumes:
+      - ./imacals-dashboard:/app
+      - /app/node_modules
+    restart: "no"
+    depends_on:
+      - imacals-api
+
+  # Dashboard Playwright e2e runner. Behind the `test` profile so it never starts with
+  # `make dev` — bring it up via `make test-dashboard`. The official Playwright image ships
+  # every browser plus the system libs (libnspr4/libnss3/…) the bare WSL host lacks, so this
+  # is the supported way to run e2e locally. Specs mock all API calls (page.route), so there's
+  # no api/db/minio dependency — the in-container Vite dev server (playwright.config webServer)
+  # is all it needs. Reuses the host node_modules (so the FontAwesome-token install isn't
+  # repeated in-container — run `npm install` on the host once) and writes artifacts to /tmp so
+  # nothing lands root-owned in the source tree. Runs as the host UID so the Vite cache it
+  # writes stays yours.
+  imacals-dashboard-e2e:
+    # Pin must track @playwright/test in imacals-dashboard/package-lock.json — bump together.
+    image: mcr.microsoft.com/playwright:v1.59.1-noble
+    container_name: imacals-dashboard-e2e
+    profiles: ["test"]
+    working_dir: /app
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - ./imacals-dashboard/.env
+    environment:
+      HOME: /tmp
+    volumes:
+      - ./imacals-dashboard:/app
+    command: ["npx", "playwright", "test", "--reporter=line", "--output=/tmp/test-results"]
+
+  # Customer-facing storefront (imacals.com). Separate app from the dashboard so a storefront
+  # deploy never ships back-office code to the public, and the two can scale independently.
+  imacals-web:
+    container_name: imacals-web
+    build:
+      context: ./imacals-web
+      dockerfile: Dockerfile
+      target: dev
+    env_file:
+      - ./imacals-web/.env
+    ports:
+      - "${WEB_HOST_PORT:-5175}:5175"
+    volumes:
+      - ./imacals-web:/app
+      - /app/node_modules
+    restart: "no"
+    depends_on:
+      - imacals-api
+
+  # Storefront Playwright e2e runner — same contract as imacals-dashboard-e2e above.
+  imacals-web-e2e:
+    # This image ships browsers ONLY for its own Playwright version, so imacals-web/package.json
+    # pins @playwright/test to exactly 1.59.1 rather than a ^range. A floating range resolves to a
+    # newer Playwright, finds no matching browser binary, and every spec fails on launch with
+    # "Executable doesn't exist". Bump the pin and this tag together.
+    image: mcr.microsoft.com/playwright:v1.59.1-noble
+    container_name: imacals-web-e2e
+    profiles: ["test"]
+    working_dir: /app
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - ./imacals-web/.env
+    environment:
+      HOME: /tmp
+      # Specs mock the catalogue with page.route(); the preview fallback would short-circuit
+      # before fetch and the routes would never fire.
+      VITE_USE_PREVIEW_CATALOG: "false"
+    volumes:
+      - ./imacals-web:/app
+    command: ["npx", "playwright", "test", "--reporter=line", "--output=/tmp/test-results"]
+
+  imacals-minio:
+    container_name: imacals-minio
+    image: minio/minio:latest
+    command: server /data --console-address ":9002"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-user}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-password}"
+    # Host ports only — in-network the API always uses imacals-minio:9000 (see S3_ENDPOINT).
+    # Defaults sit off 9000/9002 so a sibling project's MinIO can run at the same time.
+    ports:
+      - "${MINIO_API_PORT:-9001}:9000"
+      - "${MINIO_CONSOLE_PORT:-9003}:9002"
+    volumes:
+      - minio_data:/data
+    restart: on-failure
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  imacals-minio-init:
+    image: minio/minio:latest
+    container_name: imacals-minio-init
+    depends_on:
+      imacals-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://imacals-minio:9000 $${MINIO_ROOT_USER:-user} $${MINIO_ROOT_PASSWORD:-password};
+
+        mc mb --ignore-existing local/${S3_BUCKET:-imacals-bucket};
+        mc anonymous set download local/${S3_BUCKET:-imacals-bucket};
+        exit 0;
+      "
+    restart: "no"
+
+  # Dev mail-catcher (Mailpit). Imacals emails real customers — order confirmations, dispatch
+  # notices, delivery updates — so dev MUST NOT reach real inboxes: this captures every message
+  # the API sends over SMTP instead of delivering it,
+  # and exposes a web inbox at http://localhost:${MAIL_UI_PORT:-8026}. The API reaches it
+  # in-network at imacals-mail:1025 (MAIL_HOST/MAIL_PORT) — the host ports below are only for
+  # your browser / an external SMTP client, and default off 8025/1025 so a sibling project's
+  # Mailpit can run alongside. Accepts any credentials over plaintext so a mandatory SMTP
+  # AUTH succeeds without TLS. Dev-only — never staging/prod.
+  imacals-mail:
+    image: axllent/mailpit:latest
+    container_name: imacals-mail
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      # Campaign sends fan out fast — keep more than the default in the inbox before rotation.
+      MP_MAX_MESSAGES: "${MAIL_MAX_MESSAGES:-5000}"
+    ports:
+      - "${MAIL_UI_PORT:-8026}:8025"
+      - "${MAIL_SMTP_PORT:-1026}:1025"
+    restart: "no"
+
+networks:
+  default:
+    name: imacals-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  imacals_api_target:  # see imacals-api service comment
+    driver: local
