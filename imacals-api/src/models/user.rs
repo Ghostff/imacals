@@ -2,8 +2,6 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
-use crate::models::organization::Organization;
-use crate::models::organization_user_role::OrganizationUserRoleSummary;
 use crate::models::role::RoleSummary;
 
 /// Login payload shape.
@@ -32,6 +30,22 @@ pub struct LoginUserSchema {
 /// - First name and last name must be between 1-100 characters.
 /// - Email must be valid format and between 4-250 characters.
 /// - Password must be at least 6 characters.
+/// Public self-registration. Deliberately has no role or permission fields — a caller must never
+/// be able to grant itself staff access by posting to an unauthenticated endpoint.
+#[derive(Debug, Deserialize, Validate)]
+pub struct RegisterUserSchema {
+    #[validate(length(min = 1, max = 100, message = "First name must be between 1 to 100"))]
+    pub first_name: String,
+    #[validate(length(min = 1, max = 100, message = "Last name must be between 1 to 100"))]
+    pub last_name: String,
+    #[validate(length(min = 4, max = 250, message = "Email must be between 4 to 250"))]
+    #[validate(email(code = "code_str", message = "Invalid email address"))]
+    pub email: String,
+    #[validate(length(min = 6, message = "Password must be greater than 6 characters"))]
+    pub password: String,
+}
+
+/// Staff creation by an administrator.
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateUserSchema {
     /// User's first name, must be between 1-100 characters
@@ -47,11 +61,10 @@ pub struct CreateUserSchema {
     /// Password in plain text, must be at least 6 characters
     #[validate(length(min = 6, message = "Password must be greater than 6 characters"))]
     pub password: Option<String>,
-    pub organization_ids: Option<Vec<Uuid>>,
+    // The role whose permission bundle the new user starts with.
+    pub role_id: Uuid,
+    // Extra grants on top of the role, for the odd person who needs one more thing.
     pub permission_ids: Option<Vec<Uuid>>,
-    pub user_role_id: Uuid,
-    #[serde(default)]
-    pub is_internal: bool,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -65,7 +78,7 @@ pub struct UpdateUserSchema {
     pub email: String,
     pub phone: Option<String>,
     pub date_of_birth: Option<NaiveDate>,
-    pub organization_ids: Option<Vec<Uuid>>,
+    pub role_id: Option<Uuid>,
     pub permission_ids: Option<Vec<Uuid>>,
 }
 
@@ -95,19 +108,19 @@ pub struct User {
     pub verification_token: Option<Uuid>,
     pub last_logged_in_at: Option<DateTime<Utc>>,
     pub current_logged_in_at: Option<DateTime<Utc>>,
+    // The role this user's permissions were last synced from. None for the odd account that
+    // carries only hand-picked grants.
+    pub role_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+// A user plus the role they hold. Sent wherever the dashboard lists or shows staff.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserWithOrganizations {
+pub struct UserWithRole {
     #[serde(flatten)]
     pub user: User,
-    pub organizations: Vec<Organization>,
-    // Permission role (admin, super-admin) for the queried org context.
     pub role: Option<RoleSummary>,
-    // Job title (contractor, broker, …) for the queried org context.
-    pub user_role: Option<OrganizationUserRoleSummary>,
 }

@@ -3,7 +3,7 @@
 -- Attach these to any table that has children using parent_id or owner_type/owner_id.
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1. parent_id cascade (self-referential tables, e.g. organizations)
+-- 1. parent_id cascade (self-referential tables, e.g. a category tree)
 --    When a row's deleted_at transitions NULL → value, soft-delete all rows
 --    in the SAME table whose parent_id = NEW.id.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -21,14 +21,14 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 2. owner_type / owner_id cascade (polymorphic ownership, e.g. attributes)
+-- 2. owner_type / owner_id cascade (polymorphic ownership)
 --    When a row's deleted_at transitions NULL → value, soft-delete all rows
 --    in the target table whose owner_type = TG_TABLE_NAME AND owner_id = NEW.id.
 --    Pass the target table name via TG_ARGV[0].
 --    Example attachment:
---      CREATE TRIGGER trg_soft_delete_attributes_on_facility_units_delete
+--      CREATE TRIGGER trg_soft_delete_notes_on_orders_delete
 --          AFTER UPDATE OF deleted_at ON facility_units
---          FOR EACH ROW EXECUTE FUNCTION soft_delete_cascade_by_owner('attributes');
+--          FOR EACH ROW EXECUTE FUNCTION soft_delete_cascade_by_owner('notes');
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION soft_delete_cascade_by_owner()
 RETURNS TRIGGER AS $$

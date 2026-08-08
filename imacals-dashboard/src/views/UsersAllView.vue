@@ -1,43 +1,36 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, type Ref, type ComputedRef } from 'vue';
 import { useRouter } from 'vue-router';
-import { userService, type User, type UserOrganization, type CreateUserPayload } from '@/services/user';
-import { organizationUserRoleService, type OrganizationUserRole } from '@/services/organization_user_role';
-import { organizationService, type Org } from '@/services/organization';
+import { userService, type User, type CreateUserPayload } from '@/services/user';
+import { roleService, type Role } from '@/services/role';
 import { ApiException } from '@/services/api';
 
 const router = useRouter();
-const users: Ref<User[]>                    = ref([]);
-const userRoles: Ref<OrganizationUserRole[]> = ref([]);
-const orgs: Ref<Org[]>                      = ref([]);
-const loading: Ref<boolean>                 = ref(true);
-const error: Ref<string | null>             = ref(null);
+const users: Ref<User[]>        = ref([]);
+const roles: Ref<Role[]>        = ref([]);
+const loading: Ref<boolean>     = ref(true);
+const error: Ref<string | null> = ref(null);
 
 // ── Add User modal ────────────────────────────────────────────────────────
 const showModal: Ref<boolean>       = ref(false);
 const submitting: Ref<boolean>      = ref(false);
 const submitError: Ref<string|null> = ref(null);
 
-const IMACALS_SLUG = 'imacals';
-
 const form: Ref<CreateUserPayload & { password: string }> = ref({
   first_name: '',
   last_name: '',
   email: '',
   password: '',
-  organization_ids: [],
-  user_role_id: '',
+  role_id: '',
 });
 
 function openModal(): void {
-  const imacalsOrg = orgs.value.find((o) => o.slug === IMACALS_SLUG);
   form.value = {
     first_name: '',
     last_name: '',
     email: '',
     password: '',
-    organization_ids: imacalsOrg ? [imacalsOrg.id] : [],
-    user_role_id: userRoles.value[0]?.id ?? '',
+    role_id: roles.value[0]?.id ?? '',
   };
   submitError.value = null;
   showModal.value   = true;
@@ -52,17 +45,18 @@ async function submitUser(): Promise<void> {
   submitting.value  = true;
   try {
     const payload: CreateUserPayload = {
-      first_name:       form.value.first_name.trim(),
-      last_name:        form.value.last_name.trim(),
-      email:            form.value.email.trim(),
-      organization_ids: form.value.organization_ids,
-      user_role_id:     form.value.user_role_id,
+      first_name: form.value.first_name.trim(),
+      last_name:  form.value.last_name.trim(),
+      email:      form.value.email.trim(),
+      role_id:    form.value.role_id,
     };
     if (form.value.password.trim()) payload.password = form.value.password.trim();
 
     const result = await userService.create(payload);
-    // Prepend the new user to the list — re-fetch would be cleaner but expensive
-    users.value = [{ ...result.user, organizations: [], role: null, user_role: null }, ...users.value];
+    // Prepend the new user to the list — re-fetch would be cleaner but expensive. The API returns
+    // the bare user, so attach the role we just picked rather than showing a blank cell.
+    const picked = roles.value.find((r) => r.id === form.value.role_id) ?? null;
+    users.value = [{ ...result.user, role: picked }, ...users.value];
     closeModal();
   } catch (e: unknown) {
     submitError.value = e instanceof ApiException ? e.message : 'Failed to create user.';
@@ -71,17 +65,8 @@ async function submitUser(): Promise<void> {
   }
 }
 
-const search: Ref<string>    = ref('');
-const roleFilter: Ref<string>    = ref('all'); // role id or 'all'
-const orgFilter: Ref<string>     = ref('all'); // org  id or 'all'
-
-const availableOrgs: ComputedRef<UserOrganization[]> = computed(() => {
-  const map = new Map<string, UserOrganization>();
-  for (const u of users.value) {
-    for (const o of u.organizations) map.set(o.id, o);
-  }
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-});
+const search: Ref<string>     = ref('');
+const roleFilter: Ref<string> = ref('all'); // role id or 'all'
 
 const filteredUsers: ComputedRef<User[]> = computed(() => {
   const q = search.value.trim().toLowerCase();
@@ -90,22 +75,19 @@ const filteredUsers: ComputedRef<User[]> = computed(() => {
       const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
       if (!fullName.includes(q) && !u.email.toLowerCase().includes(q)) return false;
     }
-    if (roleFilter.value !== 'all' && u.user_role?.id !== roleFilter.value) return false;
-    if (orgFilter.value  !== 'all' && !u.organizations.some((o) => o.id === orgFilter.value)) return false;
+    if (roleFilter.value !== 'all' && u.role?.id !== roleFilter.value) return false;
     return true;
   });
 });
 
 const activeFilterCount: ComputedRef<number> = computed(() =>
   (search.value.trim() ? 1 : 0) +
-  (roleFilter.value !== 'all' ? 1 : 0) +
-  (orgFilter.value  !== 'all' ? 1 : 0),
+  (roleFilter.value !== 'all' ? 1 : 0),
 );
 
 function clearFilters(): void {
   search.value     = '';
   roleFilter.value = 'all';
-  orgFilter.value  = 'all';
 }
 
 // ── Delete confirmation ───────────────────────────────────────────────────
@@ -145,10 +127,9 @@ function formatDate(iso: string | null): string {
 
 onMounted(async () => {
   try {
-    [users.value, userRoles.value, orgs.value] = await Promise.all([
+    [users.value, roles.value] = await Promise.all([
       userService.index(),
-      organizationUserRoleService.index().catch(() => []),
-      organizationService.index().catch(() => []),
+      roleService.index().catch(() => []),
     ]);
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Failed to load users.';
@@ -184,12 +165,7 @@ onMounted(async () => {
         <div class="filters">
           <select v-model="roleFilter" class="filter-select">
             <option value="all">All roles</option>
-            <option v-for="r in userRoles" :key="r.id" :value="r.id">{{ r.title }}</option>
-          </select>
-
-          <select v-model="orgFilter" class="filter-select">
-            <option value="all">All organizations</option>
-            <option v-for="o in availableOrgs" :key="o.id" :value="o.id">{{ o.name }}</option>
+            <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.title }}</option>
           </select>
 
           <button
@@ -214,7 +190,6 @@ onMounted(async () => {
               <th>Email</th>
               <th>Phone</th>
               <th>Role</th>
-              <th>Organizations</th>
               <th>Last Login</th>
               <th>Created</th>
               <th></th>
@@ -222,7 +197,7 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-if="filteredUsers.length === 0">
-              <td colspan="8" class="empty-cell">
+              <td colspan="7" class="empty-cell">
                 {{ activeFilterCount > 0 ? 'No users match the current filters.' : 'No users found.' }}
               </td>
             </tr>
@@ -235,16 +210,8 @@ onMounted(async () => {
               <td>{{ u.email }}</td>
               <td>{{ u.phone ?? '—' }}</td>
               <td>
-                <span v-if="u.user_role" class="badge">{{ u.user_role.title }}</span>
+                <span v-if="u.role" class="badge">{{ u.role.title }}</span>
                 <span v-else class="cell-muted">—</span>
-              </td>
-              <td>
-                <span
-                  v-for="o in u.organizations"
-                  :key="o.id"
-                  class="org-chip"
-                >{{ o.name }}</span>
-                <span v-if="u.organizations.length === 0" class="cell-muted">—</span>
               </td>
               <td>{{ formatDate(u.last_logged_in_at) }}</td>
               <td>{{ formatDate(u.created_at) }}</td>
@@ -321,16 +288,9 @@ onMounted(async () => {
           </div>
 
           <div class="field">
-            <label class="field-label">Organization</label>
-            <select v-model="form.organization_ids[0]" class="field-input" required>
-              <option v-for="o in orgs" :key="o.id" :value="o.id">{{ o.name }}</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label class="field-label">Job Title</label>
-            <select v-model="form.user_role_id" class="field-input" required>
-              <option v-for="r in userRoles" :key="r.id" :value="r.id">{{ r.title }}</option>
+            <label class="field-label">Role</label>
+            <select v-model="form.role_id" class="field-input" required>
+              <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.title }}</option>
             </select>
           </div>
 
@@ -588,18 +548,6 @@ onMounted(async () => {
   color: var(--color-tertiary);
 }
 
-.org-chip {
-  display: inline-block;
-  font-family: var(--font-label);
-  font-size: 0.65rem;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border-radius: var(--rounded-sm);
-  border: 1px solid #E0DED9;
-  color: var(--color-secondary);
-  margin-right: 4px;
-  white-space: nowrap;
-}
 
 /* ── Footer ── */
 .result-count {

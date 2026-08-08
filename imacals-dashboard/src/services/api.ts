@@ -13,11 +13,9 @@ export class ApiException extends Error {
 }
 
 async function request<T>(method: string, path: string, payload?: unknown): Promise<T> {
-  const token  = localStorage.getItem('token');
-  const orgId  = localStorage.getItem('organization_id');
+  const token = localStorage.getItem('token');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization']    = token;
-  if (orgId) headers['X-Organization-Id'] = orgId;
+  if (token) headers['Authorization'] = token;
 
   const res = await fetch(`${BASE}${path}`, {
     method,

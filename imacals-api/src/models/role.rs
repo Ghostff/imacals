@@ -9,7 +9,6 @@ pub struct Role {
     pub name: String,
     pub title: String,
     pub description: String,
-    pub organization_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

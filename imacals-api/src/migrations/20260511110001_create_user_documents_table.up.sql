@@ -1,2 +1,0 @@
--- Superseded: document/file storage is handled by the polymorphic `files` table.
--- This migration is intentionally a no-op.

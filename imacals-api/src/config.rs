@@ -9,11 +9,6 @@ pub struct Config {
     pub cpu_count: usize,
     pub database_url: String,
     pub app_secret: String,
-    pub s3_endpoint: String,
-    pub s3_bucket: String,
-    pub s3_access_key: String,
-    pub s3_secret_key: String,
-    pub s3_region: String,
 }
 
 pub static ENV: LazyLock<Config> = LazyLock::new(|| {
@@ -28,10 +23,5 @@ pub static ENV: LazyLock<Config> = LazyLock::new(|| {
         cpu_count: cpu_count.parse::<usize>().unwrap_or_else(|_| panic!("ERROR: CPU_COUNT must be a valid number")),
         database_url: env::var("DATABASE_URL").unwrap_or_else(|_| panic!("ERROR: DATABASE_URL must be set")),
         app_secret: env::var("APP_SECRET").unwrap_or_else(|_| panic!("ERROR: APP_SECRET must be set")),
-        s3_endpoint: env::var("S3_ENDPOINT").unwrap_or_default(),
-        s3_bucket: env::var("S3_BUCKET").unwrap_or_else(|_| panic!("ERROR: S3_BUCKET must be set")),
-        s3_access_key: env::var("S3_ACCESS_KEY").unwrap_or_else(|_| panic!("ERROR: S3_ACCESS_KEY must be set")),
-        s3_secret_key: env::var("S3_SECRET_KEY").unwrap_or_else(|_| panic!("ERROR: S3_SECRET_KEY must be set")),
-        s3_region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
     }
 });

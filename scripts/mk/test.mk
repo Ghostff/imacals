@@ -1,14 +1,11 @@
 # Test suites — API (Rust), dashboard (Playwright).
 
-# Run the full test suite. Brings the stack up first so cargo test has a live DB + MinIO.
+# Run the full test suite. Brings the stack up first so cargo test has a live DB.
 test: test-up test-api test-dashboard test-web
 
-# Start the containers the tests depend on.
-# `imacals-minio-init` is a one-shot bucket-creator that exits 0 — start it without --wait so
-# its clean exit isn't flagged as failure. Then --wait on imacals-api, which depends on
-# db + minio being healthy.
+# Start the containers the tests depend on. #[sqlx::test] needs a live postgres; the API itself
+# only has to be up for the shell that runs cargo test.
 test-up:
-	@docker-compose up -d imacals-minio-init
 	@docker-compose up -d --wait imacals-api
 
 # Run the Rust API test suite (unit + #[sqlx::test] integration tests) inside the api container.

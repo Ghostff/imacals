@@ -4,7 +4,7 @@ Ecommerce and distribution for Nigeria, run out of a base warehouse in **Aba, Ab
 Customers order online or by phone; we pick, deliver and distribute.
 
 Three apps: a Rust/Actix API, a Vue 3 back-office dashboard (`dashboard.imacals.com`) and a Vue 3
-customer storefront (`imacals.com`). PostgreSQL, MinIO, Mailpit behind them.
+customer storefront (`imacals.com`). PostgreSQL behind them.
 
 ---
 
@@ -38,15 +38,14 @@ Dev credentials — change them before any deployment that is reachable from out
 | Storefront (`imacals.com`) | http://localhost:5175 | `WEB_HOST_PORT` |
 | Dashboard (`dashboard.imacals.com`) | http://localhost:5174 | `DASHBOARD_HOST_PORT` |
 | API | http://localhost:3032 | `APP_PORT` |
-| Mail inbox (Mailpit) | http://localhost:8026 | `MAIL_UI_PORT` |
-| MinIO console | http://localhost:9003 | `MINIO_CONSOLE_PORT` |
 | Postgres | localhost:5437 | `DB_HOST_PORT` |
 
-Host-port defaults deliberately avoid the usual ones (5432/9000/9002/8025) so a sibling project's
-stack can run at the same time. In-container hostnames and ports never change.
+Host-port defaults deliberately avoid the usual ones (5432, 5173) so a sibling project's stack can
+run at the same time. In-container hostnames and ports never change.
 
-**Email never leaves your machine in dev.** Every send goes to Mailpit and shows up in the inbox
-above.
+There is **no object storage and no mail service** — nothing uploads or sends yet. Add them back
+alongside the feature that needs them (product images, order confirmation email), sized to that
+need.
 
 ---
 
@@ -92,34 +91,26 @@ Flip it to `false` and delete the `PREVIEW_CATALOG` block once the API is built.
 
 ---
 
-## Configuration lives in the database, not in `.env`
+## What's in the box
 
-This is the one rule to internalise before adding a provider.
-
-Environment variables **seed** integrations on first boot and are never read again. Credentials then
-live in the `integrations` + `attributes` tables, and `IntegrationResolverService` re-reads them on
-every use — so changing a provider or its credentials in the dashboard takes effect on the next send
-with **no restart**. Editing an env var after the first boot has no effect; edit the integration.
-
-A fresh install comes up with the credential-free **Log** provider live (it writes mail to the API
-log instead of sending), so nothing is ever delivered to a real inbox by accident. Configure a real
-provider on the Integrations page, then switch to it.
-
-See `docs/business_logic.md §7` for the full rule set.
-
----
-
-## Optional: FontAwesome Pro
-
-`@fortawesome/pro-solid-svg-icons` comes from a private registry and is an **optional** dependency of
-the dashboard: without a token the install skips it and the app runs, with the map toolbar showing
-text labels instead of icons. To get the icons, add your token to `imacals-dashboard/.env`:
+The platform core, and nothing more — five tables:
 
 ```
-FONTAWESOME_PACKAGE_TOKEN=<your-token>
+users  roles  permissions  role_permissions  user_permissions
 ```
 
-The storefront does not depend on it.
+That is auth, staff accounts, and a role/permission model. Nothing else.
+
+Everything inherited from the property-renovation codebase this started as has been stripped:
+multi-tenancy, domains, geo reference tables, polygons/zones, trades, materials, spaces, bank
+accounts, user documents, file/object storage, the email-provider integrations layer, and ~200
+permission rows naming features that never existed.
+
+The ecommerce domain — products, stock, orders, delivery, payments — is next; the shape it should
+take is specified in `docs/business_logic.md §3`.
+
+There is **no organization or tenant layer**. Imacals is one business; a permission check needs
+only the user.
 
 ---
 

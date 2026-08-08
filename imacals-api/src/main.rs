@@ -8,10 +8,8 @@ mod macros;
 mod helpers;
 mod utilities;
 mod middlewares;
-mod seeds;
 
 use std::io;
-use std::sync::{LazyLock};
 use std::time::Duration;
 use actix_cors::Cors;
 use actix_extensible_rate_limit::backend::memory::InMemoryBackend;
@@ -19,17 +17,13 @@ use actix_extensible_rate_limit::backend::SimpleInputFunctionBuilder;
 use actix_extensible_rate_limit::RateLimiter;
 use actix_web::middleware::NormalizePath;
 use actix_web::{web, App, HttpServer};
-use reqwest_middleware::ClientWithMiddleware;
 use sqlx::postgres::{PgPoolOptions};
 use sqlx::{Pool, Postgres};
 use tracing_actix_web::TracingLogger;
 
 use crate::config::ENV;
 use crate::utilities::error_bag::ErrorBag;
-use crate::utilities::http_request::build_http_client;
 use crate::utilities::tracing::{init_tracing, install_panic_hook, print_startup_banner};
-
-pub static HTTP_CLIENT: LazyLock<ClientWithMiddleware> = LazyLock::new(|| build_http_client(Some(3)));
 
 #[derive(Clone)]
 pub struct AppState {
@@ -57,16 +51,6 @@ async fn main() -> io::Result<()> {
         .run(&pool)
         .await
         .expect("Failed to run database migrations");
-
-    // Seeds run in the background so a slow seed can't delay the port binding — while the socket
-    // is closed anything proxying the API returns 502. Seeds are insert-only and idempotent, and
-    // only add reference data, so serving a few requests while they finish is benign. Migrations
-    // above stay blocking (the schema must exist before we serve). Order inside the task is
-    // preserved for seeds that depend on each other.
-    let seed_pool = pool.clone();
-    actix_web::rt::spawn(async move {
-        seeds::integration_seed::run(&seed_pool).await;
-    });
 
     // Shared application state
     let state = AppState { pool: pool.clone() };

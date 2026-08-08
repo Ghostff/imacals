@@ -1,3 +1,3 @@
 # Project Memory Index
 
-- [System Users Feature](project_system_users.md) — domain_system_users: one named user per (domain, job-title role)
+_(empty — the system-users feature it described was removed along with the domains layer.)_

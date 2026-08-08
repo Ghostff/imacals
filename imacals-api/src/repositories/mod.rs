@@ -1,17 +1,3 @@
 pub mod user_repository;
 pub mod role_repository;
 pub mod permission_repository;
-pub mod organization_repository;
-pub mod organization_user_repository;
-pub mod organization_user_permission_repository;
-pub mod organization_user_role_repository;
-pub mod geo_repository;
-pub mod polygon_repository;
-pub mod polygon_neighbor_repository;
-pub mod polygon_zone_repository;
-pub mod file_repository;
-pub mod user_bank_account_repository;
-pub mod domain_repository;
-pub mod domain_system_user_repository;
-pub mod integration_repository;
-pub mod attribute_repository;

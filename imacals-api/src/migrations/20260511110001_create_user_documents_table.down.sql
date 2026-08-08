@@ -1,1 +1,0 @@
--- No-op: nothing was created in the up migration.

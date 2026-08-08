@@ -16,9 +16,9 @@ const route = useRoute();
 const { user } = useAuth();
 const { isDark, toggleTheme } = useTheme();
 
-// Integrations is the only destination for now — every other section was removed rather than
-// left as a link to a placeholder.
-const nav: NavItem[] = [{ label: 'Integrations', key: 'integrations', to: '/integrations' }];
+// Users is the only destination for now — every other section was removed rather than left as a
+// link to a placeholder. Catalogue, orders and dispatch join here as they are built.
+const nav: NavItem[] = [{ label: 'Users', key: 'users-all', to: '/users/all' }];
 
 // `openKey` is a string rather than a boolean so more menus can join later without reworking the
 // outside-click handling.

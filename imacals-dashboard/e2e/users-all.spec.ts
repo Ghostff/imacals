@@ -11,9 +11,9 @@ const MOCK_ME = {
   is_internal: true,
 };
 
-const MOCK_USER_ROLES = [
-  { id: 'ur-1', name: 'backoffice',  title: 'Back Office' },
-  { id: 'ur-2', name: 'contractor',  title: 'Contractor'  },
+const MOCK_ROLES = [
+  { id: 'r-1', name: 'admin',      title: 'Admin'      },
+  { id: 'r-2', name: 'order-desk', title: 'Order Desk' },
 ];
 
 const MOCK_USERS = [
@@ -29,9 +29,8 @@ const MOCK_USERS = [
     current_logged_in_at: null,
     created_at: '2025-01-15T08:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
-    organizations: [{ id: 'org-1', name: 'Imacals', slug: 'imacals' }],
+    role_id: 'r-1',
     role: { id: 'r-1', name: 'admin', title: 'Admin' },
-    user_role: { id: 'ur-1', name: 'backoffice', title: 'Back Office' },
   },
   {
     id: 'user-2',
@@ -45,9 +44,8 @@ const MOCK_USERS = [
     current_logged_in_at: null,
     created_at: '2025-03-10T12:00:00Z',
     updated_at: '2025-03-10T12:00:00Z',
-    organizations: [{ id: 'org-2', name: 'Acme Corp', slug: 'acme' }],
-    role: null,
-    user_role: { id: 'ur-2', name: 'contractor', title: 'Contractor' },
+    role_id: 'r-2',
+    role: { id: 'r-2', name: 'order-desk', title: 'Order Desk' },
   },
   {
     id: 'user-3',
@@ -61,9 +59,8 @@ const MOCK_USERS = [
     current_logged_in_at: null,
     created_at: '2025-06-01T09:00:00Z',
     updated_at: '2025-06-01T09:00:00Z',
-    organizations: [],
+    role_id: null,
     role: null,
-    user_role: null,
   },
 ];
 
@@ -83,24 +80,11 @@ function mockUsers(route: Route): void {
   });
 }
 
-const MOCK_ORGS = [
-  { id: 'org-1', name: 'Imacals', slug: 'imacals', parent_id: null, description: null },
-  { id: 'org-2', name: 'Acme Corp', slug: 'acme', parent_id: null, description: null },
-];
-
-function mockUserRoles(route: Route): void {
+function mockRoles(route: Route): void {
   route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ success: 'true', data: MOCK_USER_ROLES }),
-  });
-}
-
-function mockOrgs(route: Route): void {
-  route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ success: 'true', data: MOCK_ORGS }),
+    body: JSON.stringify({ success: 'true', data: MOCK_ROLES }),
   });
 }
 
@@ -112,8 +96,7 @@ test.describe('Users — All Users page', () => {
     await page.evaluate((token) => localStorage.setItem('token', token), MOCK_TOKEN);
     await page.route('**/api/auth/me', mockMe);
     await page.route('**/api/users', mockUsers);
-    await page.route('**/api/user-roles', mockUserRoles);
-    await page.route('**/api/organizations', mockOrgs);
+    await page.route('**/api/roles', mockRoles);
   });
 
   // ── Renders ──────────────────────────────────────────────────────────────
@@ -141,21 +124,21 @@ test.describe('Users — All Users page', () => {
     await expect(secondRow).toContainText('—');
   });
 
-  // ── Org user role column ──────────────────────────────────────────────────
+  // ── Role column ───────────────────────────────────────────────────────────
 
-  test('shows user_role title in Role column', async ({ page }) => {
+  test('shows role title in Role column', async ({ page }) => {
     await page.goto('/users/all');
     const firstRow = page.locator('.users-table tbody tr').first();
-    await expect(firstRow.locator('.badge')).toContainText('Back Office');
+    await expect(firstRow.locator('.badge')).toContainText('Admin');
   });
 
-  test('shows Contractor badge for second user', async ({ page }) => {
+  test('shows Order Desk badge for second user', async ({ page }) => {
     await page.goto('/users/all');
     const secondRow = page.locator('.users-table tbody tr').nth(1);
-    await expect(secondRow.locator('.badge')).toContainText('Contractor');
+    await expect(secondRow.locator('.badge')).toContainText('Order Desk');
   });
 
-  test('shows dash when user has no org user role', async ({ page }) => {
+  test('shows dash when user has no role', async ({ page }) => {
     await page.goto('/users/all');
     const thirdRow = page.locator('.users-table tbody tr').nth(2);
     await expect(thirdRow.locator('.cell-muted').first()).toContainText('—');
@@ -163,32 +146,23 @@ test.describe('Users — All Users page', () => {
 
   // ── Role filter dropdown ──────────────────────────────────────────────────
 
-  test('role filter dropdown is populated from /user-roles', async ({ page }) => {
+  test('role filter dropdown is populated from /roles', async ({ page }) => {
     await page.goto('/users/all');
     const select = page.locator('.filter-select').first();
-    await expect(select.locator('option', { hasText: 'Back Office' })).toHaveCount(1);
-    await expect(select.locator('option', { hasText: 'Contractor' })).toHaveCount(1);
+    await expect(select.locator('option', { hasText: 'Admin' })).toHaveCount(1);
+    await expect(select.locator('option', { hasText: 'Order Desk' })).toHaveCount(1);
   });
 
   test('filtering by role hides non-matching users', async ({ page }) => {
     await page.goto('/users/all');
-    await page.locator('.filter-select').first().selectOption('ur-1'); // Back Office
+    await page.locator('.filter-select').first().selectOption('r-1'); // Admin
     await expect(page.locator('.users-table tbody tr')).toHaveCount(1);
     await expect(page.locator('.users-table tbody tr').first()).toContainText('Alice');
   });
 
   test('filtering by role shows only matching users', async ({ page }) => {
     await page.goto('/users/all');
-    await page.locator('.filter-select').first().selectOption('ur-2'); // Contractor
-    await expect(page.locator('.users-table tbody tr')).toHaveCount(1);
-    await expect(page.locator('.users-table tbody tr').first()).toContainText('Bob');
-  });
-
-  // ── Org filter ───────────────────────────────────────────────────────────
-
-  test('org filter shows only users in selected org', async ({ page }) => {
-    await page.goto('/users/all');
-    await page.locator('.filter-select').nth(1).selectOption('org-2'); // Acme Corp
+    await page.locator('.filter-select').first().selectOption('r-2'); // Order Desk
     await expect(page.locator('.users-table tbody tr')).toHaveCount(1);
     await expect(page.locator('.users-table tbody tr').first()).toContainText('Bob');
   });
@@ -214,14 +188,14 @@ test.describe('Users — All Users page', () => {
   test('clear button appears when a filter is active', async ({ page }) => {
     await page.goto('/users/all');
     await expect(page.locator('.clear-btn')).not.toBeVisible();
-    await page.locator('.filter-select').first().selectOption('ur-1');
+    await page.locator('.filter-select').first().selectOption('r-1');
     await expect(page.locator('.clear-btn')).toBeVisible();
   });
 
   test('clear button resets all filters', async ({ page }) => {
     await page.goto('/users/all');
     await page.locator('.search-input').fill('alice');
-    await page.locator('.filter-select').first().selectOption('ur-1');
+    await page.locator('.filter-select').first().selectOption('r-1');
     await page.locator('.clear-btn').click();
     await expect(page.locator('.users-table tbody tr')).toHaveCount(3);
     await expect(page.locator('.clear-btn')).not.toBeVisible();
@@ -236,19 +210,13 @@ test.describe('Users — All Users page', () => {
     await expect(page.locator('.modal-title')).toContainText('Add User');
   });
 
-  test('modal defaults organization to Imacals', async ({ page }) => {
-    await page.goto('/users/all');
-    await page.getByRole('button', { name: '+ Add User' }).click();
-    const orgSelect = page.locator('select').nth(2); // third select in the modal (after role filters)
-    await expect(orgSelect).toHaveValue('org-1');
-  });
-
-  test('modal job title select is populated from /user-roles', async ({ page }) => {
+  test('modal role select is populated from /roles and defaults to the first', async ({ page }) => {
     await page.goto('/users/all');
     await page.getByRole('button', { name: '+ Add User' }).click();
     const roleSelect = page.locator('.modal select').last();
-    await expect(roleSelect.locator('option', { hasText: 'Back Office' })).toHaveCount(1);
-    await expect(roleSelect.locator('option', { hasText: 'Contractor' })).toHaveCount(1);
+    await expect(roleSelect).toHaveValue('r-1');
+    await expect(roleSelect.locator('option', { hasText: 'Admin' })).toHaveCount(1);
+    await expect(roleSelect.locator('option', { hasText: 'Order Desk' })).toHaveCount(1);
   });
 
   test('Cancel button closes modal', async ({ page }) => {

@@ -89,29 +89,26 @@ pub fn install_panic_hook() {
 }
 
 pub fn print_startup_banner() {
-    // Local banner: the browsable URLs first (dashboard is what a developer opens), then the API,
-    // then internal state. URLs only — never echo MinIO or mail credentials into logs.
-    // Every port is read from the variable the service is actually configured with, so the banner
-    // can't advertise an address nothing is listening on.
+    // Local banner: the browsable URLs first (the front ends are what a developer opens), then the
+    // API, then internal state. URLs only — never echo credentials into logs. Every port is read
+    // from the variable the service is actually configured with, so the banner can't advertise an
+    // address nothing is listening on.
     if ENV.app_env == "local" {
         let dashboard_port = env::var("DASHBOARD_HOST_PORT").unwrap_or_else(|_| "5174".to_string());
-        let minio_port     = env::var("MINIO_CONSOLE_PORT").unwrap_or_else(|_| "9003".to_string());
-        let mail_port      = env::var("MAIL_UI_PORT").unwrap_or_else(|_| "8026".to_string());
+        let web_port       = env::var("WEB_HOST_PORT").unwrap_or_else(|_| "5175".to_string());
 
         eprintln!(
             "\n┌─────────────────────────────────────────┐\n\
                │           🚀  Server Started             │\n\
                └─────────────────────────────────────────┘\n\
+               \n  🛒  Storefront → http://localhost:{}\
                \n  🖥️  Dashboard  → http://localhost:{}\
-               \n  📬  Mail inbox → http://localhost:{}\
-               \n  📦  MinIO      → http://localhost:{}\
                \n  🌐  API        → {}:{}\
                \n  🗄️  Database   → connected\
                \n  ⚙️  Workers    → {}\
                \n  🔧  Env        → {}\n",
+            web_port,
             dashboard_port,
-            mail_port,
-            minio_port,
             ENV.app_url, ENV.app_port,
             ENV.cpu_count,
             ENV.app_env,

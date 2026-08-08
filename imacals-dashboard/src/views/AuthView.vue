@@ -23,14 +23,13 @@ async function submit(): Promise<void> {
   loading.value = true;
   try {
     await login(email.value.trim(), password.value);
-    // Land on Integrations: nothing else in imacals works until a sending provider is configured,
-    // so it is the first thing an operator needs after signing in. `redirect` wins when the guard
-    // bounced someone here from a deep link.
+    // Land on Users — the only thing in the dashboard until the ecommerce screens exist.
+    // `redirect` wins when the guard bounced someone here from a deep link.
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : null;
     if (redirect) {
       await router.replace(redirect);
     } else {
-      await router.replace({ name: 'integrations' });
+      await router.replace({ name: 'users-all' });
     }
   } catch (e: unknown) {
     if (e instanceof ApiException || e instanceof Error) {
@@ -50,7 +49,7 @@ async function submit(): Promise<void> {
       <header class="auth-header">
         <p class="auth-eyebrow">imacals</p>
         <h1 class="auth-title">Sign in</h1>
-        <p class="auth-subtitle">Campaign delivery, contacts, and provider settings.</p>
+        <p class="auth-subtitle">Orders, catalogue and dispatch for the Aba warehouse.</p>
       </header>
 
       <form class="auth-form" @submit.prevent="submit" novalidate>

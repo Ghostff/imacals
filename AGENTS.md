@@ -20,7 +20,7 @@ AI-only project. Read this file before writing any code.
 
 ## Stack
 
-- Rust (edition 2021), Actix-web 4, PostgreSQL 17, sqlx, JWT, MinIO
+- Rust (edition 2021), Actix-web 4, PostgreSQL 17, sqlx, JWT
 
 ```
 imacals-api/src/
@@ -29,7 +29,7 @@ imacals-api/src/
 ├── repositories/      ← all SQL lives here
 ├── services/          ← business logic
 ├── routes/api.rs      ← URL wiring
-├── middlewares/       ← User + Organization from request
+├── middlewares/       ← User from request (JWT → User extractor)
 ├── macros/            ← gate!, can!
 ├── utilities/         ← ErrorBag, JsonResponse
 └── migrations/        ← SQL up/down files
@@ -69,12 +69,14 @@ File: `src/migrations/<timestamp>_create_<entity>s_table.up.sql`
 
 Required columns on every table:
 - `id UUID PRIMARY KEY DEFAULT uuid_generate_v4()`
-- `organization_id UUID NOT NULL REFERENCES organizations(id)` — **only for app entities that belong to a tenant** (e.g. products, orders, customers). Do NOT add it to global/admin data (geo reference tables, polygons, domains, system config, etc.).
-- `domain_id UUID NOT NULL REFERENCES domains(id)` — **only for reference data that varies by location** (product categories, price lists, delivery tariffs, etc.). Do NOT add it to tenant entities or geo/infrastructure tables. Slug/name uniqueness must be scoped to `(domain_id, slug)` not globally.
 - `created_by UUID NOT NULL REFERENCES users(id)` (if ownership matters)
 - `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `deleted_at TIMESTAMPTZ` (soft delete — never hard delete)
+
+> There is **no `organization_id` and no `domain_id`.** Imacals is one business, not a multi-tenant
+> platform, and there is no location-scoped reference layer. Never add either column — if you think
+> a table needs tenant or region scoping, that is a design change to raise, not to assume.
 
 ### Indexes (MANDATORY — every migration must declare them)
 
@@ -99,17 +101,13 @@ Skeleton:
 -- =========================
 
 -- FK lookups for joins.
-CREATE INDEX IF NOT EXISTS products_organization_id_index
-    ON products (organization_id)
-    WHERE deleted_at IS NULL;
-
 CREATE INDEX IF NOT EXISTS products_created_by_index
     ON products (created_by)
     WHERE deleted_at IS NULL;
 
--- Slug must be unique per tenant but reusable after soft-delete.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_products_org_slug_active
-    ON products (organization_id, slug)
+-- Slug must be unique but reusable after soft-delete.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_products_slug_active
+    ON products (slug)
     WHERE deleted_at IS NULL;
 
 -- Soft-delete aware filtering on listings / audit queries.
@@ -123,8 +121,8 @@ CREATE INDEX IF NOT EXISTS products_deleted_at_index
 
 | Function | When to use | Trigger arg(s) |
 |---|---|---|
-| `soft_delete_cascade_by_parent_id()` | Self-referential trees (e.g. `organizations.parent_id`, `spaces.parent_id`). Cascades within the SAME table. | none |
-| `soft_delete_cascade_by_fk('child_table', 'fk_col')` | Direct FK from child to parent (the common case — `organization_users_permissions.organization_users_id`, etc.). | child table name, FK column |
+| `soft_delete_cascade_by_parent_id()` | Self-referential trees (e.g. `categories.parent_id`). Cascades within the SAME table. | none |
+| `soft_delete_cascade_by_fk('child_table', 'fk_col')` | Direct FK from child to parent (the common case — `user_permissions.user_id`, `order_items.order_id`). | child table name, FK column |
 | `soft_delete_cascade_by_owner('child_table')` | Polymorphic ownership where child has `owner_type` + `owner_id`. | child table name |
 
 Rules:
@@ -133,23 +131,23 @@ Rules:
 - Triggers go in the parent's `up.sql` (or the child's, if added later) — keep the trigger near whichever table makes the relationship most discoverable.
 - `down.sql` must `DROP TRIGGER IF EXISTS …` before dropping the table.
 
-Attachment example (from `organization_users_permissions`):
+Attachment example (from `user_permissions`):
 
 ```sql
-CREATE TRIGGER trg_soft_delete_org_user_permissions_on_org_user_delete
-    AFTER UPDATE OF deleted_at ON organization_users
-    FOR EACH ROW EXECUTE FUNCTION soft_delete_cascade_by_fk('organization_users_permissions', 'organization_users_id');
+CREATE TRIGGER trg_soft_delete_user_permissions_on_user_delete
+    AFTER UPDATE OF deleted_at ON users
+    FOR EACH ROW EXECUTE FUNCTION soft_delete_cascade_by_fk('user_permissions', 'user_id');
 ```
 
-Self-referential example (organizations):
+Self-referential example (a category tree):
 
 ```sql
-CREATE TRIGGER trg_soft_delete_organizations_on_parent_delete
-    AFTER UPDATE OF deleted_at ON organizations
+CREATE TRIGGER trg_soft_delete_categories_on_parent_delete
+    AFTER UPDATE OF deleted_at ON categories
     FOR EACH ROW EXECUTE FUNCTION soft_delete_cascade_by_parent_id();
 ```
 
-When NOT to cascade: reference tables shared across tenants, or audit tables that must outlive the parent (e.g. `order_status_history` — an order's history is the record of what happened and must survive the order being hidden). Document the omission in a comment.
+When NOT to cascade: audit tables that must outlive the parent (e.g. `order_status_history` — an order's history is the record of what happened and must survive the order being hidden). Document the omission in a comment.
 
 ---
 
@@ -169,8 +167,6 @@ File: `src/models/<entity>.rs` — add `pub mod <entity>;` to `models/mod.rs`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Product {
     pub id: Uuid,
-    pub organization_id: Uuid,
-    pub domain_id: Uuid,
     pub created_by: Uuid,
     pub name: String,
     pub slug: String,
@@ -262,8 +258,8 @@ File: `src/controllers/api/<entity>_controller.rs` — add to `controllers/api/m
 use crate::utilities::error_bag::ErrorBag;
 use crate::utilities::json_response::JsonResponse;
 
-pub async fn show(user: User, organization: Organization, app: Data<AppState>, id: Path<Uuid>) -> HttpResponse {
-    crate::gate!(&app.pool, &user, &organization, "products.view");
+pub async fn show(user: User, app: Data<AppState>, id: Path<Uuid>) -> HttpResponse {
+    crate::gate!(&app.pool, &user, "products.view");
     match ProductRepository::find_by_id(&app.pool, &id.into_inner()).await {
         Ok(p)                   => JsonResponse::success(p),
         Err(Error::RowNotFound) => JsonResponse::error(ErrorBag::NotFound("Product".into())),
@@ -271,8 +267,8 @@ pub async fn show(user: User, organization: Organization, app: Data<AppState>, i
     }
 }
 
-pub async fn delete(user: User, organization: Organization, app: Data<AppState>, id: Path<Uuid>) -> HttpResponse {
-    crate::gate!(&app.pool, &user, &organization, "products.delete");
+pub async fn delete(user: User, app: Data<AppState>, id: Path<Uuid>) -> HttpResponse {
+    crate::gate!(&app.pool, &user, "products.delete");
     match ProductRepository::delete(&app.pool, &id.into_inner()).await {
         Ok(0)  => JsonResponse::error(ErrorBag::NotFound("Product".into())),
         Ok(_)  => JsonResponse::success(json!({ "message": "Product deleted successfully" })),
@@ -313,7 +309,7 @@ INSERT INTO permissions (name, slug) VALUES
 
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.slug = 'admin' AND p.slug LIKE 'products.%';
+WHERE r.name = 'admin' AND p.name LIKE 'products.%';
 ```
 
 ---
@@ -321,10 +317,10 @@ WHERE r.slug = 'admin' AND p.slug LIKE 'products.%';
 ## Permission macros
 
 ```rust
-crate::gate!(&app.pool, &user, &organization, "entity.action");          // block if missing
-crate::gate_any!(&app.pool, &user, &organization, &["a", "b"]);          // block if none match
-crate::gate_all!(&app.pool, &user, &organization, &["a", "b"]);          // block if any missing
-if crate::can!(&app.pool, &user, &organization, "entity.action") { ... } // boolean, no block
+crate::gate!(&app.pool, &user, "entity.action");          // block if missing
+crate::gate_any!(&app.pool, &user, &["a", "b"]);          // block if none match
+crate::gate_all!(&app.pool, &user, &["a", "b"]);          // block if any missing
+if crate::can!(&app.pool, &user, "entity.action") { ... }  // boolean, no block
 ```
 
 `user.is_superuser == true` bypasses all gates.
@@ -357,7 +353,7 @@ Rules:
 - Do NOT comment functions, fields, or structs whose names already tell the full story.
 
 Good: `// Soft-delete: preserving the row lets us audit or recover shapes after deletion.`
-Good: `// Polygons are global admin data — never scoped to an organization.`
+Good: `// Sync is explicit: a role edit must not silently rewrite a hand-picked grant.`
 Good: `// Coordinates stored as [{lat, lng}] JSONB so the shape can be edited without schema changes.`
 Bad:  `// Returns every polygon that has not been deleted, newest first.` (restates the query)
 Bad:  `// Saves the polygon the admin just finished drawing.` (restates the method name)
@@ -633,150 +629,6 @@ your way out of.
 
 ---
 
-## File Uploads
-
-All uploaded files use a single polymorphic `files` table. Never store paths directly on entity tables. See `docs/business_logic.md §6` for the full rule set.
-
-### Migration skeleton
-
-```sql
-CREATE TABLE IF NOT EXISTS files (
-    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    created_by     UUID NOT NULL REFERENCES users(id),
-    fileable_type  VARCHAR  NOT NULL,
-    fileable_id    UUID          NOT NULL,
-    type           VARCHAR  NOT NULL,
-    name           VARCHAR  NOT NULL,
-    absolute_path  TEXT          NOT NULL,
-    relative_path  TEXT          NOT NULL,
-    size           BIGINT       NOT NULL,
-    mime_type      VARCHAR NOT NULL,
-    created_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    deleted_at     TIMESTAMPTZ
-);
-
--- =========================
--- Indexes
--- =========================
-
--- Primary lookup: all files for a given owner row.
-CREATE INDEX IF NOT EXISTS files_fileable_index
-    ON files (fileable_type, fileable_id)
-    WHERE deleted_at IS NULL;
-
--- FK: who uploaded the file.
-CREATE INDEX IF NOT EXISTS files_created_by_index
-    ON files (created_by)
-    WHERE deleted_at IS NULL;
-
--- Soft-delete aware filtering.
-CREATE INDEX IF NOT EXISTS files_deleted_at_index
-    ON files (deleted_at);
-
--- At-most-one constraint example (use when only one file of a given type is allowed per owner):
--- CREATE UNIQUE INDEX IF NOT EXISTS uq_files_owner_type_active
---     ON files (fileable_type, fileable_id, type)
---     WHERE deleted_at IS NULL;
-```
-
-### FileType enum (Rust)
-
-Define in `src/models/file.rs`. Add a new variant whenever a new upload use-case is introduced — never use a free-form string.
-
-```rust
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "varchar", rename_all = "kebab-case")]
-#[serde(rename_all = "kebab-case")]
-pub enum FileType {
-    UserSignature,       // user-signature       — owner: users
-    UserInitials,        // user-initials        — owner: users
-    UserProofOfFunds,    // user-proof-of-funds  — owner: users
-    ProductImage,        // product-image        — owner: products
-    OrderAttachment,     // order-attachment     — owner: orders
-}
-
-// File mirrors the files table. Paths come from MinIO; type scopes the file's purpose.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct File {
-    pub id:             Uuid,
-    pub created_by:     Uuid,
-    pub fileable_type:  String,
-    pub fileable_id:    Uuid,
-    pub file_type:      FileType,  // mapped via "type" AS "file_type: FileType" in every query
-    pub name:           String,
-    pub absolute_path:  String,
-    pub relative_path:  String,
-    pub size:           i64,
-    pub mime_type:      String,
-    pub created_at:     DateTime<Utc>,
-    pub updated_at:     DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deleted_at:     Option<DateTime<Utc>>,
-}
-```
-
-### Upload flow (service layer)
-
-1. Receive the multipart upload in the controller.
-2. Call the MinIO/S3 helper to stream the object → get back `(absolute_path, relative_path)`.
-3. Insert a `files` row via `FileRepository::create(pool, created_by, fileable_type, fileable_id, file_type, name, absolute_path, relative_path)`.
-4. Return the `File` struct to the caller.
-
-Never call the storage helper from a controller — always go through a service.
-
-### Querying files for an entity
-
-```rust
-// Returns all active files for a given owner.
-pub async fn find_for_owner(
-    pool: &PgPool,
-    fileable_type: &str,
-    fileable_id: &Uuid,
-) -> Result<Vec<File>, Error> {
-    sqlx::query_as!(File,
-        r#"SELECT id, created_by, fileable_type, fileable_id,
-                  type AS "type: FileType", name,
-                  absolute_path, relative_path,
-                  created_at, updated_at, deleted_at
-           FROM files
-           WHERE fileable_type = $1
-             AND fileable_id   = $2
-             AND deleted_at IS NULL"#,
-        fileable_type, fileable_id
-    ).fetch_all(pool).await
-}
-```
-
----
-
-## Runtime configuration (never read env at use time)
-
-Third-party credentials and provider choices live in the database, not the environment. `.env` is a
-**seed** only. See `docs/business_logic.md §7` for the full rule set; the pattern in code:
-
-```rust
-// Wrong: the value is frozen at boot, so changing it needs a restart.
-let key = &ENV.mailgun_api_key;
-
-// Right: resolved per use, so a dashboard edit applies to the next send.
-let provider = IntegrationResolverService::resolve(&app.pool, IntegrationCategory::Email).await?;
-let key = provider.required("MAILGUN_API_KEY")?;   // decrypted here
-let region = provider.optional("MAILGUN_REGION");  // has a sensible default
-```
-
-Rules:
-- A new provider = a new `IntegrationType` variant + a `FieldDef` template in
-  `utilities/integration_type_defs.rs` + a `category()` arm. Nothing else hardcodes its field names.
-- Add a seed function only to bootstrap a fresh install; guard it on the env var being present and
-  on the slug not already existing.
-- Never cache resolved credentials in a `static`/`LazyLock` — that reintroduces restart-to-apply.
-- Secrets are encrypted with `APP_SECRET` before insert and masked out of API responses.
-
----
-
 ## Keeping docs in sync
 
 | File | Update when |
@@ -802,7 +654,7 @@ Run inside containers (`make dev` must be running first). Fix all errors before 
 ## Running the project
 
 ```bash
-make dev            # start API + DB + MinIO + Mailpit
+make dev            # start API + DB + both front ends
 make run-migration  # apply pending migrations
 make prepare        # regenerate sqlx offline query metadata
 make help           # list every target, grouped
@@ -820,15 +672,13 @@ it — touch a `.rs` file (or rebuild) or the embedded set stays stale.
 | Dashboard | `http://localhost:5174` | `DASHBOARD_HOST_PORT` |
 | Storefront | `http://localhost:5175` | `WEB_HOST_PORT` |
 | Postgres | `localhost:5437` | `DB_HOST_PORT` — off 5432 to avoid clashing with a local/sibling postgres |
-| MinIO console | `http://localhost:9003` | `MINIO_CONSOLE_PORT` |
-| Mail inbox (Mailpit) | `http://localhost:8026` | `MAIL_UI_PORT` |
 
-Host-port defaults deliberately avoid the common ones (5432/9000/9002/8025) so a sibling
-project's stack can run at the same time. In-container hostnames/ports never change.
+Host-port defaults deliberately avoid the common ones (5432, 5173) so a sibling project's stack
+can run at the same time. In-container hostnames/ports never change.
 
-**Email in dev never leaves the machine.** Mailpit (`imacals-mail`, SMTP at `imacals-mail:1025`)
-captures every send and shows it in the web inbox above. All mail-sending code must go through
-`MAIL_HOST`/`MAIL_PORT` — never hardcode a relay, or dev traffic hits real recipients.
+There is **no object storage and no mail service.** Nothing uploads or sends yet. Bring them back
+with the feature that needs them (product images, order confirmation email) rather than ahead of
+it.
 
 The root `Makefile` is thin: it loads `imacals-api/.env` then includes one group file per
 command family from `scripts/mk/`. Add a new command family by dropping a `*.mk` there,
