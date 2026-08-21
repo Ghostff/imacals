@@ -1,4 +1,13 @@
-const BASE: string = import.meta.env.VITE_API_BASE ?? '/api';
+function normalizeBase(base?: string): string {
+  if (!base) return '/api';
+  let cleaned = base.replace(/\/+$/, '');
+  if (!cleaned.endsWith('/api')) {
+    cleaned = `${cleaned}/api`;
+  }
+  return cleaned;
+}
+
+const BASE: string = normalizeBase(import.meta.env.VITE_API_BASE);
 
 type ApiResponse<T> = { success: string; data: T };
 type ApiError = { success: string; code: string; error: { message: string } };
@@ -19,7 +28,8 @@ async function request<T>(method: string, path: string, payload?: unknown): Prom
   if (token) headers['Authorization']    = token;
   if (orgId) headers['X-Organization-Id'] = orgId;
 
-  const res = await fetch(`${BASE}${path}`, {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const res = await fetch(`${BASE}${cleanPath}`, {
     method,
     headers,
     body: payload !== undefined ? JSON.stringify(payload) : undefined,
@@ -49,7 +59,8 @@ async function uploadRequest<T>(path: string, formData: FormData): Promise<T> {
   if (token) headers['Authorization']    = token;
   if (orgId) headers['X-Organization-Id'] = orgId;
 
-  const res = await fetch(`${BASE}${path}`, {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const res = await fetch(`${BASE}${cleanPath}`, {
     method: 'POST',
     headers,
     body: formData,

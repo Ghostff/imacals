@@ -111,10 +111,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  let pathname = url.pathname.replace(/\/+$/, '');
+  let pathname = url.pathname.replace(/\/+/g, '/').replace(/\/+$/, '');
   const method = (req.method || 'GET').toUpperCase();
 
-  // Strip leading /api prefix if present
+  // Ensure leading /api prefix
   if (!pathname.startsWith('/api') && pathname) {
     pathname = `/api${pathname}`;
   } else if (!pathname) {
