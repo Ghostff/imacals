@@ -14,3 +14,6 @@ pub mod domain_controller;
 pub mod domain_system_user_controller;
 pub mod integration_controller;
 pub mod attribute_controller;
+pub mod product_controller;
+pub mod category_controller;
+pub mod catalog_controller;

@@ -14,3 +14,5 @@ pub mod domain;
 pub mod domain_system_user;
 pub mod integration;
 pub mod attribute;
+pub mod category;
+pub mod product;

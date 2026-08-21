@@ -114,22 +114,22 @@ the storefront already assumes. `imacals-web` calls `/catalog/products`, `/catal
 `/orders` and `/orders/:reference/track`; until they exist it runs on the preview catalogue in
 `imacals-web/src/services/catalog.ts` behind `VITE_USE_PREVIEW_CATALOG`.
 
-### Tables to build
+### Tables (Built & Remaining)
 
-| Table | Notes |
-|---|---|
-| `warehouses` | The Aba base warehouse is the first row. Orders are picked from a warehouse. |
-| `categories` | Domain-scoped, self-referential for sub-categories. |
-| `products` | Domain-scoped. `slug` unique per `(domain_id, slug)` where `deleted_at IS NULL`. |
-| `stock_levels` | Per `(product_id, warehouse_id)`. Never a bare column on `products`. |
-| `customers` | A buyer. May exist without a `users` row — phone orders create one from a name and number. |
-| `customer_addresses` | Multiple per customer; one default. |
-| `orders` | Carries `channel` (`online` \| `phone`), `reference`, `status`, totals, warehouse. |
-| `order_items` | Line snapshot: unit price copied at order time so later price changes never rewrite history. |
-| `order_status_history` | Append-only. One row per transition, with actor and timestamp. |
-| `delivery_zones` | Ties a geographic area to a tariff. Should reuse `polygons` / `zones`. |
-| `delivery_fees` | Fee per zone, per weight or value band. |
-| `payments` | Against an order. Partial payment and refund must both be representable. |
+| Table | Status | Notes |
+|---|---|---|
+| `categories` | Built | Domain-scoped with soft delete and slug indexing. |
+| `products` | Built | Tenant & domain-scoped (`unit_price_kobo`, `unit`, `min_order_quantity`, `in_stock`, image file link). |
+| `warehouses` | To build | The Aba base warehouse is the first row. Orders are picked from a warehouse. |
+| `stock_levels` | To build | Per `(product_id, warehouse_id)`. Never a bare column on `products`. |
+| `customers` | To build | A buyer. May exist without a `users` row — phone orders create one from a name and number. |
+| `customer_addresses` | To build | Multiple per customer; one default. |
+| `orders` | To build | Carries `channel` (`online` \| `phone`), `reference`, `status`, totals, warehouse. |
+| `order_items` | To build | Line snapshot: unit price copied at order time so later price changes never rewrite history. |
+| `order_status_history` | To build | Append-only. One row per transition, with actor and timestamp. |
+| `delivery_zones` | To build | Ties a geographic area to a tariff. Should reuse `polygons` / `zones`. |
+| `delivery_fees` | To build | Fee per zone, per weight or value band. |
+| `payments` | To build | Against an order. Partial payment and refund must both be representable. |
 
 ### Rules the storefront already depends on
 
