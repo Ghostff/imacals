@@ -4,12 +4,36 @@ use crate::controllers::api::{
     polygon_neighbor_controller, polygon_zone_controller, role_controller, user_controller,
     user_document_controller, user_bank_account_controller,
     integration_controller, attribute_controller,
+    catalog_controller, product_controller, category_controller,
 };
 use actix_web::web;
 use actix_web::web::{delete, get, post, put};
 
 pub fn init(cfg: &mut web::ServiceConfig) {
     cfg.route("/health", get().to(default_controller::health_check))
+        .service(
+            web::scope("/catalog")
+                .route("/products", get().to(catalog_controller::products))
+                .route("/products/{slug}", get().to(catalog_controller::show_by_slug))
+                .route("/categories", get().to(catalog_controller::categories))
+        )
+        .service(
+            web::scope("/products")
+                .route("", get().to(product_controller::index))
+                .route("", post().to(product_controller::create))
+                .route("/{id}", get().to(product_controller::show))
+                .route("/{id}", put().to(product_controller::update))
+                .route("/{id}", delete().to(product_controller::delete))
+                .route("/{id}/image", post().to(product_controller::upload_image))
+        )
+        .service(
+            web::scope("/categories")
+                .route("", get().to(category_controller::index))
+                .route("", post().to(category_controller::create))
+                .route("/{id}", get().to(category_controller::show))
+                .route("/{id}", put().to(category_controller::update))
+                .route("/{id}", delete().to(category_controller::delete))
+        )
         .service(
             web::scope("/auth")
                 .route("/me", get().to(api_auth_controller::me))

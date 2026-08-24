@@ -6,3 +6,4 @@ ai/history.json
 .idea
 .env
 
+imacals-serverless-api/.env.example

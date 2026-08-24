@@ -9,6 +9,7 @@ import UsersAllView from '@/views/UsersAllView.vue';
 import UserProfileView from '@/views/UserProfileView.vue';
 import SystemUsersView from '@/views/SystemUsersView.vue';
 import IntegrationsView from '@/views/IntegrationsView.vue';
+import ProductsView from '@/views/ProductsView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -19,6 +20,7 @@ const router = createRouter({
       component: DashboardView,
       children: [
         { path: '',                          name: 'dashboard',           component: HomeView },
+        { path: 'products',                  name: 'products',            component: ProductsView },
         { path: 'find-property',            name: 'find-property',       component: PlaceholderView },
         { path: 'offers/draft',             name: 'offers-draft',        component: PlaceholderView },
         { path: 'offers/submitted',         name: 'offers-submitted',    component: PlaceholderView },
