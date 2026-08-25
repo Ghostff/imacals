@@ -11,7 +11,40 @@ interface UserRecord {
   password?: string;
 }
 
-export async function login(payload: any): Promise<{ token: string; user: Omit<UserRecord, 'password'> }> {
+export interface OrganizationRecord {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export async function getOrganizations(): Promise<OrganizationRecord[]> {
+  try {
+    const { data: orgs, error } = await supabase
+      .from('organizations')
+      .select('id, name, slug')
+      .is('deleted_at', null);
+
+    if (!error && orgs && orgs.length > 0) {
+      return orgs;
+    }
+  } catch {
+    // Fallback to default
+  }
+
+  return [
+    {
+      id: '00000000-0000-0000-0000-000000000001',
+      name: 'Imacals Aba Base',
+      slug: 'imacals',
+    },
+  ];
+}
+
+export async function login(payload: any): Promise<{
+  token: string;
+  user: Omit<UserRecord, 'password'>;
+  organizations: OrganizationRecord[];
+}> {
   const email = (payload.email || '').trim().toLowerCase();
   const password = payload.password || '';
 
@@ -69,10 +102,15 @@ export async function login(payload: any): Promise<{ token: string; user: Omit<U
     is_internal: user.is_internal,
   };
 
-  return { token: `Bearer ${token}`, user: cleanUser };
+  const organizations = await getOrganizations();
+
+  return { token: `Bearer ${token}`, user: cleanUser, organizations };
 }
 
-export async function getMe(authHeader?: string): Promise<{ user: any }> {
+export async function getMe(authHeader?: string): Promise<{
+  user: any;
+  organizations: OrganizationRecord[];
+}> {
   if (!authHeader) {
     throw new Error('Unauthorized');
   }
@@ -87,7 +125,9 @@ export async function getMe(authHeader?: string): Promise<{ user: any }> {
       .is('deleted_at', null)
       .maybeSingle();
 
-    if (user) return { user };
+    const organizations = await getOrganizations();
+
+    if (user) return { user, organizations };
     return {
       user: {
         id: decoded.sub,
@@ -97,6 +137,7 @@ export async function getMe(authHeader?: string): Promise<{ user: any }> {
         is_superuser: decoded.is_superuser ?? true,
         is_internal: decoded.is_internal ?? true,
       },
+      organizations,
     };
   } catch (err: any) {
     throw new Error('Invalid or expired token');

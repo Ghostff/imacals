@@ -19,7 +19,7 @@ import {
   updateCategory,
   deleteCategory,
 } from '../src/routes/categories.js';
-import { login, getMe } from '../src/routes/auth.js';
+import { login, getMe, getOrganizations } from '../src/routes/auth.js';
 
 // Helpers
 function sendJson(res: ServerResponse, status: number, data: any): void {
@@ -163,6 +163,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const authHeader = req.headers['authorization'] as string | undefined;
       const data = await getMe(authHeader);
       sendSuccess(res, data);
+      return;
+    }
+
+    // ── Organizations (Admin) ──────────────────────────────────────────────
+    if (pathname === '/api/organizations' && method === 'GET') {
+      const orgs = await getOrganizations();
+      sendSuccess(res, orgs);
       return;
     }
 
