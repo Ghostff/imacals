@@ -17,7 +17,7 @@ interface Organization {
 
 interface LoginResponse {
   user: User;
-  organizations: Organization[];
+  organizations?: Organization[];
   token: string;
 }
 
@@ -25,10 +25,11 @@ const token              = ref<string | null>(localStorage.getItem('token'));
 const user               = ref<User | null>(null);
 const organizationId     = ref<string | null>(localStorage.getItem('organization_id'));
 
-function storeOrganization(orgs: Organization[]): void {
+function storeOrganization(orgs?: Organization[] | null): void {
   // Keep whichever org is already active if it's still in the list; otherwise use the first.
-  const current = organizationId.value;
-  const match   = orgs.find((o) => o.id === current) ?? orgs[0] ?? null;
+  const safeOrgs = Array.isArray(orgs) ? orgs : [];
+  const current  = organizationId.value;
+  const match    = safeOrgs.find((o) => o.id === current) ?? safeOrgs[0] ?? null;
   organizationId.value = match?.id ?? null;
   if (match) {
     localStorage.setItem('organization_id', match.id);
@@ -65,7 +66,7 @@ export function useAuth(): {
 
   async function fetchMe(): Promise<void> {
     try {
-      const data = await api.get<{ user: User; organizations: Organization[] }>('/auth/me');
+      const data = await api.get<{ user: User; organizations?: Organization[] }>('/auth/me');
       user.value = data.user;
       storeOrganization(data.organizations);
     } catch {
