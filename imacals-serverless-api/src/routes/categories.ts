@@ -11,15 +11,54 @@ export interface Category {
   updated_at: string;
 }
 
-export async function listCategories(): Promise<Category[]> {
-  const { data, error } = await supabase
-    .from('categories')
-    .select('*')
-    .is('deleted_at', null)
-    .order('name', { ascending: true });
+export const DEFAULT_CATEGORIES: Category[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000001',
+    domain_id: '00000000-0000-0000-0000-000000000001',
+    created_by: null,
+    name: 'Foodstuff',
+    slug: 'foodstuff',
+    description: 'Bulk foodstuff: rice, beans, grains, oils and essentials.',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000002',
+    domain_id: '00000000-0000-0000-0000-000000000001',
+    created_by: null,
+    name: 'Household',
+    slug: 'household',
+    description: 'Household cleaning supplies, detergents and soaps.',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000003',
+    domain_id: '00000000-0000-0000-0000-000000000001',
+    created_by: null,
+    name: 'Beverages',
+    slug: 'beverages',
+    description: 'Drinks, water and bulk beverage cartons.',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+];
 
-  if (error) throw new Error(error.message);
-  return data || [];
+export async function listCategories(): Promise<Category[]> {
+  try {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .is('deleted_at', null)
+      .order('name', { ascending: true });
+
+    if (error || !data || data.length === 0) {
+      return DEFAULT_CATEGORIES;
+    }
+    return data;
+  } catch {
+    return DEFAULT_CATEGORIES;
+  }
 }
 
 export async function createCategory(payload: any, userId?: string): Promise<Category> {
