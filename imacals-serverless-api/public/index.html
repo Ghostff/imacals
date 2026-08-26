@@ -3,44 +3,1320 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>imacals API</title>
+  <title>imacals Serverless API — Monitoring & Error Logs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --bg: #0e1013;
+      --surface: #17191c;
+      --surface-elevated: #1f2227;
+      --surface-hover: #262a30;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text-primary: #ecedee;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #b4ff39;
+      --accent-dim: rgba(180, 255, 57, 0.12);
+      --error: #ff4d4f;
+      --error-dim: rgba(255, 77, 79, 0.14);
+      --warning: #faad14;
+      --warning-dim: rgba(250, 173, 20, 0.14);
+      --success: #52c41a;
+      --success-dim: rgba(82, 196, 26, 0.14);
+      --font-display: 'Fraunces', serif;
+      --font-body: 'Public Sans', -apple-system, sans-serif;
+      --font-label: 'Space Grotesk', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 60px;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 0 24px;
+    }
+
+    .header-inner {
+      max-width: 1360px;
+      margin: 0 auto;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-family: var(--font-display);
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-badge {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: var(--accent-dim);
+      color: var(--accent);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(180, 255, 57, 0.25);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-label);
+      font-size: 0.75rem;
+      letter-spacing: 0.03em;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: var(--success-dim);
+      color: var(--success);
+      border: 1px solid rgba(82, 196, 26, 0.25);
+    }
+
+    .status-pill--error {
+      background: var(--error-dim);
+      color: var(--error);
+      border-color: rgba(255, 77, 79, 0.3);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-label);
+      font-size: 0.75rem;
+      letter-spacing: 0.02em;
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #0e1013;
+      border: none;
+      font-weight: 600;
+    }
+
+    .btn-accent:hover {
+      background: #c3ff5c;
+      color: #000;
+    }
+
+    .btn-danger {
+      color: var(--error);
+      border-color: rgba(255, 77, 79, 0.3);
+    }
+
+    .btn-danger:hover {
+      background: var(--error-dim);
+      border-color: var(--error);
+    }
+
+    .select-rate {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* ── Main Container ── */
+    .container {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ── Metric Cards Grid ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    @media (max-width: 1024px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 600px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .kpi-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .kpi-title {
+      font-family: var(--font-label);
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .kpi-icon {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-size: 1.85rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .kpi-sub {
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .val-error { color: var(--error) !important; }
+    .val-warning { color: var(--warning) !important; }
+    .val-success { color: var(--success) !important; }
+    .val-accent { color: var(--accent) !important; }
+
+    /* ── Middle Split Section (Charts & Endpoints) ── */
+    .dashboard-split {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 960px) {
+      .dashboard-split { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-title {
+      font-family: var(--font-label);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .timeline-canvas-wrap {
+      width: 100%;
+      height: 130px;
+      position: relative;
+    }
+
+    canvas#activityCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Distribution bar */
+    .dist-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .dist-bar {
+      height: 8px;
+      width: 100%;
+      background: var(--surface-elevated);
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+    }
+
+    .dist-seg {
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+
+    .dist-seg--2xx { background: var(--success); }
+    .dist-seg--4xx { background: var(--warning); }
+    .dist-seg--5xx { background: var(--error); }
+
+    .dist-labels {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+    }
+
+    /* Endpoints Matrix */
+    .endpoints-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .endpoints-table th {
+      text-align: left;
+      font-family: var(--font-label);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .endpoints-table td {
+      padding: 8px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+
+    .endpoints-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* ── Logs Stream Section ── */
+    .stream-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .stream-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .filter-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .filter-pill {
+      font-family: var(--font-label);
+      font-size: 0.725rem;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .filter-pill:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+    }
+
+    .filter-pill--active {
+      background: var(--text-primary);
+      color: #0e1013;
+      border-color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .filter-pill--error.filter-pill--active {
+      background: var(--error);
+      color: #fff;
+      border-color: var(--error);
+    }
+
+    .search-box {
+      position: relative;
+      min-width: 240px;
+    }
+
+    .search-input {
+      width: 100%;
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px 6px 30px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    /* Logs Table */
+    .table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .logs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.825rem;
+      font-family: var(--font-mono);
+    }
+
+    .logs-table th {
+      text-align: left;
+      font-family: var(--font-label);
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: var(--surface-elevated);
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .logs-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+      vertical-align: middle;
+    }
+
+    .logs-table tbody tr {
+      cursor: pointer;
+      transition: background 0.1s ease;
+    }
+
+    .logs-table tbody tr:hover {
+      background: var(--surface-hover);
+    }
+
+    .logs-table tbody tr.row--error {
+      background: rgba(255, 77, 79, 0.04);
+    }
+
+    .logs-table tbody tr.row--error:hover {
+      background: rgba(255, 77, 79, 0.08);
+    }
+
+    .badge-status {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .status-2xx { background: var(--success-dim); color: var(--success); }
+    .status-3xx { background: rgba(24, 144, 255, 0.14); color: #1890ff; }
+    .status-4xx { background: var(--warning-dim); color: var(--warning); }
+    .status-5xx { background: var(--error-dim); color: var(--error); }
+
+    .badge-method {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+
+    .method-get { color: #69b1ff; }
+    .method-post { color: #5cdbd3; }
+    .method-put { color: #b37feb; }
+    .method-delete { color: #ff85c0; }
+
+    .latency-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .latency-bar {
+      height: 4px;
+      background: var(--accent);
+      border-radius: 2px;
+      max-width: 60px;
+    }
+
+    .latency-slow { background: var(--warning) !important; }
+    .latency-very-slow { background: var(--error) !important; }
+
+    .error-snippet {
+      color: var(--error);
+      font-size: 0.75rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: var(--text-muted);
+      font-family: var(--font-label);
+      font-size: 0.85rem;
+    }
+
+    /* ── Modal ── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
-      margin: 0;
-      background-color: #0e1013;
-      color: #ecedee;
-      text-align: center;
+      z-index: 100;
+      padding: 20px;
     }
-    .card {
-      background: #17191c;
-      padding: 32px 48px;
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
       border-radius: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+      width: 100%;
+      max-width: 680px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
     }
-    h1 { margin: 0 0 8px 0; color: #b4ff39; font-size: 1.75rem; }
-    p { color: #9ca3af; margin: 0 0 16px 0; font-size: 0.95rem; }
-    .badge {
-      display: inline-block;
-      padding: 4px 12px;
-      background: rgba(180, 255, 57, 0.15);
-      color: #b4ff39;
-      border-radius: 999px;
+
+    .modal-head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title {
+      font-family: var(--font-label);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    .modal-close:hover { color: var(--text-primary); }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .meta-box {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+
+    .meta-label {
+      font-family: var(--font-label);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .meta-val {
+      font-family: var(--font-mono);
       font-size: 0.8rem;
-      font-weight: 500;
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+
+    .code-block {
+      background: #090a0c;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: #b4ff39;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      line-height: 1.45;
+    }
+
+    .code-block--error {
+      color: #ff7875;
+      background: #190a0b;
+      border-color: rgba(255, 77, 79, 0.3);
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>imacals Serverless API</h1>
-    <p>Backend services powered by Supabase & Vercel Serverless Functions</p>
-    <span class="badge">● Operational</span>
+
+  <!-- Top Navigation -->
+  <header>
+    <div class="header-inner">
+      <div class="brand-wrap">
+        <a class="brand-title" href="/">imacals</a>
+        <span class="brand-badge">Serverless API</span>
+        <div id="statusPill" class="status-pill">
+          <span class="status-dot"></span>
+          <span id="statusText">Operational</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <select id="rateSelect" class="select-rate" title="Auto refresh interval">
+          <option value="1000">Refresh: 1s</option>
+          <option value="3000" selected>Refresh: 3s</option>
+          <option value="5000">Refresh: 5s</option>
+          <option value="10000">Refresh: 10s</option>
+          <option value="0">Auto: Off</option>
+        </select>
+
+        <button id="btnRefresh" class="btn" type="button" title="Manual refresh">
+          <span>↻</span> Refresh
+        </button>
+
+        <button id="btnTestError" class="btn btn-danger" type="button" title="Simulate an error to test monitoring">
+          <span>⚡</span> Test Error
+        </button>
+
+        <button id="btnClear" class="btn" type="button" title="Clear log history">
+          Clear Logs
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Dashboard -->
+  <main class="container">
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+      <!-- Database & Supabase -->
+      <div class="kpi-card">
+        <div class="kpi-head">
+          <span class="kpi-title">Supabase DB</span>
+          <span class="kpi-icon">⚡</span>
+        </div>
+        <div id="dbLatency" class="kpi-value val-accent">-- ms</div>
+        <div class="kpi-sub">
+          <span id="dbStatusBadge">● Checking connection</span>
+        </div>
+      </div>
+
+      <!-- Total Requests -->
+      <div class="kpi-card">
+        <div class="kpi-head">
+          <span class="kpi-title">Total Requests</span>
+          <span class="kpi-icon">📈</span>
+        </div>
+        <div id="totalReqs" class="kpi-value">0</div>
+        <div class="kpi-sub">
+          <span id="reqRate">0 req/min</span> · <span id="successRate" class="val-success">100% success</span>
+        </div>
+      </div>
+
+      <!-- Errors (4xx & 5xx) -->
+      <div class="kpi-card">
+        <div class="kpi-head">
+          <span class="kpi-title">Errors (5xx / 4xx)</span>
+          <span class="kpi-icon">⚠️</span>
+        </div>
+        <div id="errorCount" class="kpi-value val-error">0</div>
+        <div class="kpi-sub">
+          <span id="serverErrCount">0 server (5xx)</span> · <span id="clientErrCount">0 client (4xx)</span>
+        </div>
+      </div>
+
+      <!-- Latency (Avg & p95) -->
+      <div class="kpi-card">
+        <div class="kpi-head">
+          <span class="kpi-title">Avg Latency</span>
+          <span class="kpi-icon">⏱️</span>
+        </div>
+        <div id="avgLatency" class="kpi-value">-- ms</div>
+        <div class="kpi-sub">
+          <span id="p95Latency">p95: -- ms</span> · <span id="uptimeDisplay">Uptime: 0s</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Middle Split: Timeline & Endpoints Matrix -->
+    <div class="dashboard-split">
+      <!-- Activity Timeline Chart -->
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">
+            <span>Activity & Error Distribution</span>
+          </h2>
+          <span id="timelineSub" style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary);">Real-time stream</span>
+        </div>
+
+        <div class="timeline-canvas-wrap">
+          <canvas id="activityCanvas"></canvas>
+        </div>
+
+        <!-- Proportional status bar -->
+        <div class="dist-bar-wrap">
+          <div class="dist-bar">
+            <div id="seg2xx" class="dist-seg dist-seg--2xx" style="width: 100%;"></div>
+            <div id="seg4xx" class="dist-seg dist-seg--4xx" style="width: 0%;"></div>
+            <div id="seg5xx" class="dist-seg dist-seg--5xx" style="width: 0%;"></div>
+          </div>
+          <div class="dist-labels">
+            <span id="lbl2xx" style="color: var(--success)">2xx Success: 0</span>
+            <span id="lbl4xx" style="color: var(--warning)">4xx Client Error: 0</span>
+            <span id="lbl5xx" style="color: var(--error)">5xx Server Error: 0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Endpoints Matrix -->
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Top Endpoints</h2>
+          <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary);">Hits / Latency</span>
+        </div>
+
+        <table class="endpoints-table">
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Hits</th>
+              <th>Avg ms</th>
+              <th>Failures</th>
+            </tr>
+          </thead>
+          <tbody id="endpointsBody">
+            <tr>
+              <td colspan="4" style="text-align: center; color: var(--text-muted);">No endpoint calls recorded</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Live Request & Error Stream -->
+    <div class="stream-panel">
+      <div class="stream-toolbar">
+        <div class="filter-pills">
+          <button class="filter-pill filter-pill--active" data-status="all" type="button">All Requests</button>
+          <button class="filter-pill filter-pill--error" data-status="errors" type="button">Errors Only (4xx & 5xx)</button>
+          <button class="filter-pill" data-status="5xx" type="button">5xx Server</button>
+          <button class="filter-pill" data-status="4xx" type="button">4xx Client</button>
+          <button class="filter-pill" data-status="slow" type="button">Slow (>300ms)</button>
+          <button class="filter-pill" data-status="2xx" type="button">2xx Success</button>
+        </div>
+
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input id="searchInput" class="search-input" type="search" placeholder="Search path, error, code…" />
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="logs-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Status</th>
+              <th>Method</th>
+              <th>Endpoint</th>
+              <th>Duration</th>
+              <th>Details / Error</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="logsBody">
+            <tr>
+              <td colspan="7" class="empty-state">Loading serverless logs…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Log Detail Modal -->
+  <div id="detailModal" class="modal-backdrop" style="display: none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">
+          <span id="modalMethodBadge" class="badge-method">GET</span>
+          <span id="modalStatusBadge" class="badge-status status-2xx">200</span>
+          <span id="modalPath">/api/health</span>
+        </div>
+        <button id="modalCloseBtn" class="modal-close" type="button" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="meta-grid">
+          <div class="meta-box">
+            <div class="meta-label">Timestamp</div>
+            <div id="modalTimestamp" class="meta-val">--</div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">Execution Duration</div>
+            <div id="modalDuration" class="meta-val">-- ms</div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">Client IP</div>
+            <div id="modalIp" class="meta-val">--</div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">User Agent</div>
+            <div id="modalUserAgent" class="meta-val">--</div>
+          </div>
+        </div>
+
+        <!-- Error Stack if present -->
+        <div id="modalErrorSection" style="display: none;">
+          <div class="meta-label" style="color: var(--error)">Error Diagnostic & Stack Trace</div>
+          <pre id="modalErrorText" class="code-block code-block--error"></pre>
+        </div>
+
+        <!-- Request Body -->
+        <div id="modalBodySection" style="display: none;">
+          <div class="meta-label">Request Payload (Sanitized)</div>
+          <pre id="modalBodyText" class="code-block"></pre>
+        </div>
+
+        <!-- Response Summary -->
+        <div>
+          <div class="meta-label">Response Summary</div>
+          <pre id="modalResponseText" class="code-block"></pre>
+        </div>
+      </div>
+    </div>
   </div>
+
+  <!-- JavaScript Client Logic -->
+  <script>
+    let activeFilter = 'all';
+    let searchQuery = '';
+    let refreshInterval = 3000;
+    let timerId = null;
+    let currentLogs = [];
+
+    // Elements
+    const statusPill = document.getElementById('statusPill');
+    const statusText = document.getElementById('statusText');
+    const dbLatency = document.getElementById('dbLatency');
+    const dbStatusBadge = document.getElementById('dbStatusBadge');
+    const totalReqs = document.getElementById('totalReqs');
+    const reqRate = document.getElementById('reqRate');
+    const successRate = document.getElementById('successRate');
+    const errorCount = document.getElementById('errorCount');
+    const serverErrCount = document.getElementById('serverErrCount');
+    const clientErrCount = document.getElementById('clientErrCount');
+    const avgLatency = document.getElementById('avgLatency');
+    const p95Latency = document.getElementById('p95Latency');
+    const uptimeDisplay = document.getElementById('uptimeDisplay');
+    const logsBody = document.getElementById('logsBody');
+    const endpointsBody = document.getElementById('endpointsBody');
+    const searchInput = document.getElementById('searchInput');
+    const rateSelect = document.getElementById('rateSelect');
+    const btnRefresh = document.getElementById('btnRefresh');
+    const btnClear = document.getElementById('btnClear');
+    const btnTestError = document.getElementById('btnTestError');
+
+    // Segments
+    const seg2xx = document.getElementById('seg2xx');
+    const seg4xx = document.getElementById('seg4xx');
+    const seg5xx = document.getElementById('seg5xx');
+    const lbl2xx = document.getElementById('lbl2xx');
+    const lbl4xx = document.getElementById('lbl4xx');
+    const lbl5xx = document.getElementById('lbl5xx');
+
+    // Modal
+    const detailModal = document.getElementById('detailModal');
+    const modalCloseBtn = document.getElementById('modalCloseBtn');
+    const modalMethodBadge = document.getElementById('modalMethodBadge');
+    const modalStatusBadge = document.getElementById('modalStatusBadge');
+    const modalPath = document.getElementById('modalPath');
+    const modalTimestamp = document.getElementById('modalTimestamp');
+    const modalDuration = document.getElementById('modalDuration');
+    const modalIp = document.getElementById('modalIp');
+    const modalUserAgent = document.getElementById('modalUserAgent');
+    const modalErrorSection = document.getElementById('modalErrorSection');
+    const modalErrorText = document.getElementById('modalErrorText');
+    const modalBodySection = document.getElementById('modalBodySection');
+    const modalBodyText = document.getElementById('modalBodyText');
+    const modalResponseText = document.getElementById('modalResponseText');
+
+    function formatTime(iso) {
+      if (!iso) return '--';
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function formatUptime(seconds) {
+      if (!seconds) return '0s';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    function getStatusClass(code) {
+      if (code >= 500) return 'status-5xx';
+      if (code >= 400) return 'status-4xx';
+      if (code >= 300) return 'status-3xx';
+      return 'status-2xx';
+    }
+
+    function getMethodClass(m) {
+      const lower = (m || 'get').toLowerCase();
+      return `method-${lower}`;
+    }
+
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/monitoring/stats');
+        const json = await res.json();
+        if (json.success === 'true') {
+          renderStats(json.data);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch stats:', err);
+      }
+    }
+
+    async function fetchLogs() {
+      try {
+        const params = new URLSearchParams();
+        if (activeFilter !== 'all') params.set('status', activeFilter);
+        if (searchQuery) params.set('search', searchQuery);
+        params.set('limit', '80');
+
+        const res = await fetch(`/api/monitoring/logs?${params.toString()}`);
+        const json = await res.json();
+        if (json.success === 'true') {
+          currentLogs = json.data.logs || [];
+          renderLogs(currentLogs);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch logs:', err);
+      }
+    }
+
+    function renderStats(data) {
+      // Supabase
+      if (data.supabase) {
+        dbLatency.innerText = `${data.supabase.latencyMs} ms`;
+        if (data.supabase.status === 'healthy') {
+          dbStatusBadge.innerHTML = '● Connected & Operational';
+          dbStatusBadge.className = 'val-success';
+        } else if (data.supabase.status === 'degraded') {
+          dbStatusBadge.innerHTML = '▲ Degraded response';
+          dbStatusBadge.className = 'val-warning';
+        } else {
+          dbStatusBadge.innerHTML = '✖ Connection failure';
+          dbStatusBadge.className = 'val-error';
+        }
+      }
+
+      // Total requests
+      totalReqs.innerText = data.totalRequests;
+      reqRate.innerText = `${data.requestsPerMinute} req/min`;
+
+      const total = data.totalRequests || 1;
+      const successPct = (((data.totalSuccess || 0) / total) * 100).toFixed(1);
+      successRate.innerText = `${successPct}% success`;
+
+      // Errors
+      const totalErrs = (data.totalServerErrors || 0) + (data.totalClientErrors || 0);
+      errorCount.innerText = totalErrs;
+      serverErrCount.innerText = `${data.totalServerErrors || 0} server (5xx)`;
+      clientErrCount.innerText = `${data.totalClientErrors || 0} client (4xx)`;
+
+      // Latency
+      avgLatency.innerText = `${data.avgLatencyMs || 0} ms`;
+      p95Latency.innerText = `p95: ${data.p95LatencyMs || 0} ms`;
+      uptimeDisplay.innerText = `Uptime: ${formatUptime(data.uptimeSeconds)}`;
+
+      // Status Pill
+      if (data.totalServerErrors > 0 || (data.supabase && data.supabase.status === 'down')) {
+        statusPill.className = 'status-pill status-pill--error';
+        statusText.innerText = 'Errors Detected';
+      } else {
+        statusPill.className = 'status-pill';
+        statusText.innerText = 'Operational';
+      }
+
+      // Distribution Bar
+      const s2 = data.totalSuccess || 0;
+      const s4 = data.totalClientErrors || 0;
+      const s5 = data.totalServerErrors || 0;
+      const all = s2 + s4 + s5 || 1;
+
+      const p2 = ((s2 / all) * 100).toFixed(1);
+      const p4 = ((s4 / all) * 100).toFixed(1);
+      const p5 = ((s5 / all) * 100).toFixed(1);
+
+      seg2xx.style.width = `${p2}%`;
+      seg4xx.style.width = `${p4}%`;
+      seg5xx.style.width = `${p5}%`;
+
+      lbl2xx.innerText = `2xx Success: ${s2} (${p2}%)`;
+      lbl4xx.innerText = `4xx Client: ${s4} (${p4}%)`;
+      lbl5xx.innerText = `5xx Server: ${s5} (${p5}%)`;
+
+      // Endpoints Table
+      if (data.endpoints && data.endpoints.length > 0) {
+        endpointsBody.innerHTML = data.endpoints
+          .slice(0, 6)
+          .map((ep) => `
+            <tr>
+              <td><span class="badge-method ${getMethodClass(ep.method)}">${ep.method}</span> ${ep.path}</td>
+              <td>${ep.count}</td>
+              <td>${ep.avgDurationMs}ms</td>
+              <td class="${ep.errorCount > 0 ? 'val-error' : ''}">${ep.errorCount}</td>
+            </tr>
+          `)
+          .join('');
+      } else {
+        endpointsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 16px;">No endpoint calls recorded</td></tr>`;
+      }
+
+      // Canvas chart
+      drawActivityChart(data.activityBuckets || []);
+    }
+
+    function drawActivityChart(buckets) {
+      const canvas = document.getElementById('activityCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+      const w = rect.width;
+      const h = rect.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (!buckets || buckets.length === 0) {
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '12px Space Grotesk';
+        ctx.textAlign = 'center';
+        ctx.fillText('Awaiting real-time traffic…', w / 2, h / 2);
+        return;
+      }
+
+      const maxCount = Math.max(...buckets.map((b) => b.count), 5);
+      const barWidth = Math.max(8, (w / buckets.length) - 6);
+
+      buckets.forEach((b, idx) => {
+        const x = idx * (w / buckets.length) + 4;
+        const totalHeight = (b.count / maxCount) * (h - 24);
+        const y = h - totalHeight - 10;
+
+        // Base request bar
+        ctx.fillStyle = 'rgba(180, 255, 57, 0.4)';
+        ctx.fillRect(x, y, barWidth, totalHeight);
+
+        // Error portion if any
+        if (b.errorCount > 0) {
+          const errHeight = (b.errorCount / maxCount) * (h - 24);
+          ctx.fillStyle = '#ff4d4f';
+          ctx.fillRect(x, y, barWidth, errHeight);
+        }
+      });
+    }
+
+    function renderLogs(logs) {
+      if (!logs || logs.length === 0) {
+        logsBody.innerHTML = `<tr><td colspan="7" class="empty-state">No request logs match the selected filter.</td></tr>`;
+        return;
+      }
+
+      logsBody.innerHTML = logs
+        .map((log) => {
+          const isErr = log.statusCode >= 400;
+          const statusCls = getStatusClass(log.statusCode);
+          const methodCls = getMethodClass(log.method);
+          const latCls = log.durationMs > 500 ? 'latency-very-slow' : log.durationMs > 300 ? 'latency-slow' : '';
+          const detailMsg = log.errorMessage
+            ? `<span class="error-snippet">✖ [${log.errorCode || 'Error'}] ${log.errorMessage}</span>`
+            : `<span style="color: var(--text-muted); font-size: 0.75rem;">${log.responseSummary || 'OK'}</span>`;
+
+          return `
+            <tr class="${isErr ? 'row--error' : ''}" onclick="openModal('${log.id}')">
+              <td style="color: var(--text-secondary); white-space: nowrap;">${formatTime(log.timestamp)}</td>
+              <td><span class="badge-status ${statusCls}">${log.statusCode}</span></td>
+              <td><span class="badge-method ${methodCls}">${log.method}</span></td>
+              <td style="font-weight: 500;">${log.pathname}</td>
+              <td>
+                <div class="latency-bar-wrap">
+                  <div class="latency-bar ${latCls}" style="width: ${Math.min(log.durationMs / 5, 50)}px;"></div>
+                  <span style="font-size: 0.75rem;">${log.durationMs}ms</span>
+                </div>
+              </td>
+              <td>${detailMsg}</td>
+              <td style="text-align: right;">
+                <button class="btn" style="padding: 2px 8px; font-size: 0.7rem;" type="button">Inspect</button>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+
+    window.openModal = function(logId) {
+      const log = currentLogs.find((l) => l.id === logId);
+      if (!log) return;
+
+      modalMethodBadge.innerText = log.method;
+      modalMethodBadge.className = `badge-method ${getMethodClass(log.method)}`;
+
+      modalStatusBadge.innerText = log.statusCode;
+      modalStatusBadge.className = `badge-status ${getStatusClass(log.statusCode)}`;
+
+      modalPath.innerText = log.pathname;
+      modalTimestamp.innerText = new Date(log.timestamp).toLocaleString();
+      modalDuration.innerText = `${log.durationMs} ms`;
+      modalIp.innerText = log.ip || '127.0.0.1';
+      modalUserAgent.innerText = log.userAgent || 'Unknown';
+
+      if (log.errorMessage || log.stackTrace) {
+        modalErrorSection.style.display = 'block';
+        modalErrorText.innerText = `${log.errorCode ? `[${log.errorCode}] ` : ''}${log.errorMessage || ''}\n\n${log.stackTrace || ''}`;
+      } else {
+        modalErrorSection.style.display = 'none';
+      }
+
+      if (log.requestBody && Object.keys(log.requestBody).length > 0) {
+        modalBodySection.style.display = 'block';
+        modalBodyText.innerText = JSON.stringify(log.requestBody, null, 2);
+      } else {
+        modalBodySection.style.display = 'none';
+      }
+
+      modalResponseText.innerText = JSON.stringify(log.responseSummary ?? { status: log.statusCode }, null, 2);
+      detailModal.style.display = 'flex';
+    };
+
+    function closeModal() {
+      detailModal.style.display = 'none';
+    }
+
+    modalCloseBtn.addEventListener('click', closeModal);
+    detailModal.addEventListener('click', (e) => {
+      if (e.target === detailModal) closeModal();
+    });
+
+    // Toolbar filters
+    document.querySelectorAll('.filter-pill').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('.filter-pill').forEach((p) => p.classList.remove('filter-pill--active'));
+        pill.classList.add('filter-pill--active');
+        activeFilter = pill.dataset.status;
+        fetchLogs();
+      });
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim();
+      fetchLogs();
+    });
+
+    btnRefresh.addEventListener('click', () => {
+      fetchStats();
+      fetchLogs();
+    });
+
+    btnClear.addEventListener('click', async () => {
+      if (confirm('Clear all in-memory request and error logs?')) {
+        await fetch('/api/monitoring/logs/clear', { method: 'POST' });
+        fetchStats();
+        fetchLogs();
+      }
+    });
+
+    btnTestError.addEventListener('click', async () => {
+      const type = prompt('Select test error status code to generate (400, 404, or 500):', '500');
+      if (!type) return;
+      try {
+        await fetch('/api/monitoring/test-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, message: `Simulated ${type} test error from monitoring dashboard` }),
+        });
+        fetchStats();
+        fetchLogs();
+      } catch (err) {
+        console.error('Test error failed:', err);
+      }
+    });
+
+    function setupAutoRefresh() {
+      if (timerId) clearInterval(timerId);
+      if (refreshInterval > 0) {
+        timerId = setInterval(() => {
+          fetchStats();
+          fetchLogs();
+        }, refreshInterval);
+      }
+    }
+
+    rateSelect.addEventListener('change', (e) => {
+      refreshInterval = Number(e.target.value);
+      setupAutoRefresh();
+    });
+
+    // Initial load
+    fetchStats();
+    fetchLogs();
+    setupAutoRefresh();
+  </script>
 </body>
 </html>

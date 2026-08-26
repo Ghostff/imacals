@@ -20,8 +20,15 @@ import {
   deleteCategory,
 } from '../src/routes/categories.js';
 import { login, getMe, getOrganizations } from '../src/routes/auth.js';
+import {
+  recordLog,
+  getLogs,
+  getMetrics,
+  clearLogs,
+  checkSupabaseHealth,
+} from '../src/monitoring.js';
 
-// Helpers
+// Response helpers
 function sendJson(res: ServerResponse, status: number, data: any): void {
   res.writeHead(status, {
     'Content-Type': 'application/json',
@@ -31,18 +38,6 @@ function sendJson(res: ServerResponse, status: number, data: any): void {
       'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Organization-Id',
   });
   res.end(JSON.stringify(data));
-}
-
-function sendSuccess(res: ServerResponse, data: any, status = 200): void {
-  sendJson(res, status, { success: 'true', data });
-}
-
-function sendError(res: ServerResponse, status: number, message: string, code = 'Error'): void {
-  sendJson(res, status, {
-    success: 'false',
-    code,
-    error: { message },
-  });
 }
 
 function parseJsonBody(req: IncomingMessage): Promise<any> {
@@ -110,9 +105,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  const startMs = Date.now();
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   let pathname = url.pathname.replace(/\/+/g, '/').replace(/\/+$/, '');
   const method = (req.method || 'GET').toUpperCase();
+
+  const ip =
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    '127.0.0.1';
+  const userAgent = (req.headers['user-agent'] as string) || undefined;
+
+  let requestBody: any = undefined;
 
   // Ensure leading /api prefix
   if (!pathname.startsWith('/api') && pathname) {
@@ -121,10 +125,97 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     pathname = '/api';
   }
 
+  function logAndSendSuccess(data: any, status = 200): void {
+    const durationMs = Date.now() - startMs;
+    // Don't flood logs with internal monitoring poll requests
+    if (!pathname.startsWith('/api/monitoring/logs')) {
+      recordLog({
+        timestamp: new Date().toISOString(),
+        method,
+        pathname,
+        statusCode: status,
+        durationMs,
+        ip,
+        userAgent,
+        requestBody,
+        responseSummary: Array.isArray(data) ? `Array(${data.length})` : typeof data === 'object' ? Object.keys(data) : data,
+      });
+    }
+    sendJson(res, status, { success: 'true', data });
+  }
+
+  function logAndSendError(status: number, message: string, code = 'Error', stackTrace?: string): void {
+    const durationMs = Date.now() - startMs;
+    recordLog({
+      timestamp: new Date().toISOString(),
+      method,
+      pathname,
+      statusCode: status,
+      durationMs,
+      ip,
+      userAgent,
+      errorMessage: message,
+      errorCode: code,
+      stackTrace,
+      requestBody,
+    });
+    sendJson(res, status, {
+      success: 'false',
+      code,
+      error: { message },
+    });
+  }
+
   try {
+    // ── Monitoring & Health ────────────────────────────────────────────────
+    if (pathname === '/api/monitoring/stats' && method === 'GET') {
+      const stats = await getMetrics();
+      logAndSendSuccess(stats);
+      return;
+    }
+
+    if (pathname === '/api/monitoring/logs' && method === 'GET') {
+      const status = url.searchParams.get('status') || undefined;
+      const reqMethod = url.searchParams.get('method') || undefined;
+      const search = url.searchParams.get('search') || undefined;
+      const limit = Number(url.searchParams.get('limit')) || 100;
+      const logsResult = getLogs({ status, method: reqMethod, search, limit });
+      sendJson(res, 200, { success: 'true', data: logsResult });
+      return;
+    }
+
+    if (pathname === '/api/monitoring/logs/clear' && method === 'POST') {
+      clearLogs();
+      logAndSendSuccess({ message: 'Logs cleared successfully' });
+      return;
+    }
+
+    if (pathname === '/api/monitoring/test-error' && method === 'POST') {
+      requestBody = await parseJsonBody(req);
+      const type = requestBody?.type || '500';
+      const msg = requestBody?.message || 'Simulated test error generated for monitoring verification';
+
+      if (type === '400') {
+        logAndSendError(400, msg, 'ValidationError');
+        return;
+      }
+      if (type === '404') {
+        logAndSendError(404, msg, 'NotFound');
+        return;
+      }
+      logAndSendError(500, msg, 'DatabaseConnectionError', new Error(msg).stack);
+      return;
+    }
+
+    if (pathname === '/api/monitoring/health' && method === 'GET') {
+      const dbHealth = await checkSupabaseHealth();
+      logAndSendSuccess(dbHealth);
+      return;
+    }
+
     // ── Health ─────────────────────────────────────────────────────────────
     if (pathname === '/api/health' || pathname === '/api') {
-      sendSuccess(res, { status: 'healthy', timestamp: new Date().toISOString() });
+      logAndSendSuccess({ status: 'healthy', timestamp: new Date().toISOString() });
       return;
     }
 
@@ -132,7 +223,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (pathname === '/api/catalog/products' && method === 'GET') {
       const category = url.searchParams.get('category') || undefined;
       const products = await getCatalogProducts(category);
-      sendSuccess(res, products);
+      logAndSendSuccess(products);
       return;
     }
 
@@ -140,50 +231,50 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (catalogProductMatch && method === 'GET') {
       const slug = decodeURIComponent(catalogProductMatch[1]);
       const product = await getCatalogProductBySlug(slug);
-      if (!product) return sendError(res, 404, 'Product not found', 'NotFound');
-      sendSuccess(res, product);
+      if (!product) return logAndSendError(404, 'Product not found', 'NotFound');
+      logAndSendSuccess(product);
       return;
     }
 
     if (pathname === '/api/catalog/categories' && method === 'GET') {
       const categories = await getCatalogCategories();
-      sendSuccess(res, categories);
+      logAndSendSuccess(categories);
       return;
     }
 
     // ── Auth ───────────────────────────────────────────────────────────────
     if (pathname === '/api/auth/login' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      const data = await login(body);
-      sendSuccess(res, data);
+      requestBody = await parseJsonBody(req);
+      const data = await login(requestBody);
+      logAndSendSuccess(data);
       return;
     }
 
     if (pathname === '/api/auth/me' && method === 'GET') {
       const authHeader = req.headers['authorization'] as string | undefined;
       const data = await getMe(authHeader);
-      sendSuccess(res, data);
+      logAndSendSuccess(data);
       return;
     }
 
     // ── Organizations (Admin) ──────────────────────────────────────────────
     if (pathname === '/api/organizations' && method === 'GET') {
       const orgs = await getOrganizations();
-      sendSuccess(res, orgs);
+      logAndSendSuccess(orgs);
       return;
     }
 
     // ── Categories (Admin) ─────────────────────────────────────────────────
     if (pathname === '/api/categories' && method === 'GET') {
       const categories = await listCategories();
-      sendSuccess(res, categories);
+      logAndSendSuccess(categories);
       return;
     }
 
     if (pathname === '/api/categories' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      const created = await createCategory(body);
-      sendSuccess(res, created, 201);
+      requestBody = await parseJsonBody(req);
+      const created = await createCategory(requestBody);
+      logAndSendSuccess(created, 201);
       return;
     }
 
@@ -191,14 +282,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (categoryIdMatch) {
       const id = categoryIdMatch[1];
       if (method === 'PUT') {
-        const body = await parseJsonBody(req);
-        const updated = await updateCategory(id, body);
-        sendSuccess(res, updated);
+        requestBody = await parseJsonBody(req);
+        const updated = await updateCategory(id, requestBody);
+        logAndSendSuccess(updated);
         return;
       }
       if (method === 'DELETE') {
         await deleteCategory(id);
-        sendSuccess(res, { message: 'Category deleted successfully' });
+        logAndSendSuccess({ message: 'Category deleted successfully' });
         return;
       }
     }
@@ -206,14 +297,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // ── Products (Admin) ───────────────────────────────────────────────────
     if (pathname === '/api/products' && method === 'GET') {
       const products = await listAdminProducts();
-      sendSuccess(res, products);
+      logAndSendSuccess(products);
       return;
     }
 
     if (pathname === '/api/products' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      const created = await createProduct(body);
-      sendSuccess(res, created, 201);
+      requestBody = await parseJsonBody(req);
+      const created = await createProduct(requestBody);
+      logAndSendSuccess(created, 201);
       return;
     }
 
@@ -221,10 +312,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const productImageMatch = pathname.match(/^\/api\/products\/([^/]+)\/image$/);
     if (productImageMatch && method === 'POST') {
       const id = productImageMatch[1];
-      const { file } = await parseMultipart(req);
-      if (!file) return sendError(res, 400, 'No image file uploaded', 'Validation');
+      const { file, fields } = await parseMultipart(req);
+      requestBody = { filename: file?.filename, mimeType: file?.mimeType, ...fields };
+      if (!file) return logAndSendError(400, 'No image file uploaded', 'Validation');
       const updated = await uploadProductImage(id, file.buffer, file.filename, file.mimeType);
-      sendSuccess(res, updated);
+      logAndSendSuccess(updated);
       return;
     }
 
@@ -233,26 +325,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const id = productIdMatch[1];
       if (method === 'GET') {
         const product = await getAdminProductById(id);
-        if (!product) return sendError(res, 404, 'Product not found', 'NotFound');
-        sendSuccess(res, product);
+        if (!product) return logAndSendError(404, 'Product not found', 'NotFound');
+        logAndSendSuccess(product);
         return;
       }
       if (method === 'PUT') {
-        const body = await parseJsonBody(req);
-        const updated = await updateProduct(id, body);
-        sendSuccess(res, updated);
+        requestBody = await parseJsonBody(req);
+        const updated = await updateProduct(id, requestBody);
+        logAndSendSuccess(updated);
         return;
       }
       if (method === 'DELETE') {
         await deleteProduct(id);
-        sendSuccess(res, { message: 'Product deleted successfully' });
+        logAndSendSuccess({ message: 'Product deleted successfully' });
         return;
       }
     }
 
     // ── 404 Not Found ──────────────────────────────────────────────────────
-    sendError(res, 404, `Route ${method} ${pathname} not found`, 'NotFound');
+    logAndSendError(404, `Route ${method} ${pathname} not found`, 'NotFound');
   } catch (err: any) {
-    sendError(res, 500, err.message || 'Internal Server Error', 'InternalServerError');
+    logAndSendError(
+      500,
+      err.message || 'Internal Server Error',
+      'InternalServerError',
+      err.stack
+    );
   }
 }
