@@ -143,14 +143,16 @@ pub async fn create(user: User, organization: Organization, app: Data<AppState>,
         return JsonResponse::fatal(e, "user_controller.create.sync_organizations failed");
     }
 
-    for org_id in &organization_ids {
-        if let Err(e) = sqlx::query!(
-            "UPDATE organization_users SET user_role_id = $1 WHERE user_id = $2 AND organization_id = $3 AND deleted_at IS NULL",
-            body.user_role_id,
-            new_user.id,
-            org_id
-        ).execute(&app.pool).await {
-            return JsonResponse::fatal(e, "user_controller.create.set_user_role failed");
+    if let Some(user_role_id) = body.user_role_id {
+        for org_id in &organization_ids {
+            if let Err(e) = sqlx::query!(
+                "UPDATE organization_users SET user_role_id = $1 WHERE user_id = $2 AND organization_id = $3 AND deleted_at IS NULL",
+                user_role_id,
+                new_user.id,
+                org_id
+            ).execute(&app.pool).await {
+                return JsonResponse::fatal(e, "user_controller.create.set_user_role failed");
+            }
         }
     }
 

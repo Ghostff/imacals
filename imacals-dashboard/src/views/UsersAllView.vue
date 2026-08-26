@@ -25,6 +25,7 @@ const form: Ref<CreateUserPayload & { password: string }> = ref({
   last_name: '',
   email: '',
   password: '',
+  phone: '',
   organization_ids: [],
   user_role_id: '',
 });
@@ -36,6 +37,7 @@ function openModal(): void {
     last_name: '',
     email: '',
     password: '',
+    phone: '',
     organization_ids: imacalsOrg ? [imacalsOrg.id] : [],
     user_role_id: userRoles.value[0]?.id ?? '',
   };
@@ -55,13 +57,14 @@ async function submitUser(): Promise<void> {
       first_name:       form.value.first_name.trim(),
       last_name:        form.value.last_name.trim(),
       email:            form.value.email.trim(),
+      phone:            form.value.phone?.trim() || undefined,
       organization_ids: form.value.organization_ids,
-      user_role_id:     form.value.user_role_id,
+      user_role_id:     form.value.user_role_id || undefined,
     };
     if (form.value.password.trim()) payload.password = form.value.password.trim();
 
     const result = await userService.create(payload);
-    // Prepend the new user to the list — re-fetch would be cleaner but expensive
+    // Prepend the new user to the list
     users.value = [{ ...result.user, organizations: [], role: null, user_role: null }, ...users.value];
     closeModal();
   } catch (e: unknown) {
@@ -71,7 +74,7 @@ async function submitUser(): Promise<void> {
   }
 }
 
-const search: Ref<string>    = ref('');
+const search: Ref<string>        = ref('');
 const roleFilter: Ref<string>    = ref('all'); // role id or 'all'
 const orgFilter: Ref<string>     = ref('all'); // org  id or 'all'
 
@@ -88,7 +91,9 @@ const filteredUsers: ComputedRef<User[]> = computed(() => {
   return users.value.filter((u) => {
     if (q) {
       const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
-      if (!fullName.includes(q) && !u.email.toLowerCase().includes(q)) return false;
+      if (!fullName.includes(q) && !u.email.toLowerCase().includes(q) && !(u.phone ?? '').toLowerCase().includes(q)) {
+        return false;
+      }
     }
     if (roleFilter.value !== 'all' && u.user_role?.id !== roleFilter.value) return false;
     if (orgFilter.value  !== 'all' && !u.organizations.some((o) => o.id === orgFilter.value)) return false;
@@ -145,11 +150,14 @@ function formatDate(iso: string | null): string {
 
 onMounted(async () => {
   try {
-    [users.value, userRoles.value, orgs.value] = await Promise.all([
+    const [usersResult, userRolesResult, orgsResult] = await Promise.all([
       userService.index(),
       organizationUserRoleService.index().catch(() => []),
       organizationService.index().catch(() => []),
     ]);
+    users.value     = usersResult;
+    userRoles.value = userRolesResult;
+    orgs.value      = orgsResult;
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Failed to load users.';
   } finally {
@@ -160,7 +168,7 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <p class="page-label">Users</p>
+    <p class="page-label">Staff & Customers</p>
     <h1 class="page-title">All Users</h1>
 
     <div v-if="loading" class="state-msg">Loading…</div>
@@ -207,53 +215,53 @@ onMounted(async () => {
 
       <div class="table-card card">
         <div class="table-wrap">
-        <table class="users-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Role</th>
-              <th>Organizations</th>
-              <th>Last Login</th>
-              <th>Created</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="filteredUsers.length === 0">
-              <td colspan="8" class="empty-cell">
-                {{ activeFilterCount > 0 ? 'No users match the current filters.' : 'No users found.' }}
-              </td>
-            </tr>
-            <tr v-for="u in filteredUsers" :key="u.id">
-              <td class="cell-name">
-                <button class="name-link" type="button" @click="router.push(`/users/${u.id}`)">
-                  {{ u.first_name }} {{ u.last_name }}
-                </button>
-              </td>
-              <td>{{ u.email }}</td>
-              <td>{{ u.phone ?? '—' }}</td>
-              <td>
-                <span v-if="u.user_role" class="badge">{{ u.user_role.title }}</span>
-                <span v-else class="cell-muted">—</span>
-              </td>
-              <td>
-                <span
-                  v-for="o in u.organizations"
-                  :key="o.id"
-                  class="org-chip"
-                >{{ o.name }}</span>
-                <span v-if="u.organizations.length === 0" class="cell-muted">—</span>
-              </td>
-              <td>{{ formatDate(u.last_logged_in_at) }}</td>
-              <td>{{ formatDate(u.created_at) }}</td>
-              <td class="cell-actions">
-                <button class="btn-row-delete" type="button" @click.stop="openDeleteModal(u)">Delete</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Role</th>
+                <th>Organizations</th>
+                <th>Last Login</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="filteredUsers.length === 0">
+                <td colspan="8" class="empty-cell">
+                  {{ activeFilterCount > 0 ? 'No users match the current filters.' : 'No users found.' }}
+                </td>
+              </tr>
+              <tr v-for="u in filteredUsers" :key="u.id">
+                <td class="cell-name">
+                  <button class="name-link" type="button" @click="router.push(`/users/${u.id}`)">
+                    {{ u.first_name }} {{ u.last_name }}
+                  </button>
+                </td>
+                <td>{{ u.email }}</td>
+                <td>{{ u.phone ?? '—' }}</td>
+                <td>
+                  <span v-if="u.user_role" class="badge">{{ u.user_role.title }}</span>
+                  <span v-else class="cell-muted">—</span>
+                </td>
+                <td>
+                  <span
+                    v-for="o in u.organizations"
+                    :key="o.id"
+                    class="org-chip"
+                  >{{ o.name }}</span>
+                  <span v-if="u.organizations.length === 0" class="cell-muted">—</span>
+                </td>
+                <td>{{ formatDate(u.last_logged_in_at) }}</td>
+                <td>{{ formatDate(u.created_at) }}</td>
+                <td class="cell-actions">
+                  <button class="btn-row-delete" type="button" @click.stop="openDeleteModal(u)">Delete</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -313,6 +321,11 @@ onMounted(async () => {
           <div class="field">
             <label class="field-label">Email</label>
             <input v-model="form.email" class="field-input" type="email" required placeholder="jane@example.com" />
+          </div>
+
+          <div class="field">
+            <label class="field-label">Phone Number <span class="field-optional">(optional)</span></label>
+            <input v-model="form.phone" class="field-input" type="tel" placeholder="0800 000 0000" />
           </div>
 
           <div class="field">
@@ -404,7 +417,7 @@ onMounted(async () => {
   font-size: 0.875rem;
   color: var(--color-primary);
   background-color: var(--color-surface);
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 7px 10px 7px 32px;
   outline: none;
@@ -416,10 +429,10 @@ onMounted(async () => {
 }
 
 .search-input::placeholder {
-  color: #B8B5B0;
+  color: var(--color-secondary);
+  opacity: 0.7;
 }
 
-/* hide the native clear ✕ in Chrome */
 .search-input::-webkit-search-cancel-button { display: none; }
 
 .filters {
@@ -434,7 +447,7 @@ onMounted(async () => {
   font-size: 0.875rem;
   color: var(--color-primary);
   background-color: var(--color-surface);
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 7px 28px 7px 10px;
   appearance: none;
@@ -458,7 +471,7 @@ onMounted(async () => {
   font-size: 0.8125rem;
   color: var(--color-secondary);
   background: none;
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 7px 12px;
   cursor: pointer;
@@ -478,7 +491,7 @@ onMounted(async () => {
   height: 16px;
   border-radius: 50%;
   background-color: var(--color-tertiary);
-  color: #fff;
+  color: var(--color-on-primary);
   font-size: 0.65rem;
   font-family: var(--font-label);
   font-weight: 500;
@@ -487,10 +500,10 @@ onMounted(async () => {
 /* ── Table ── */
 .table-card {
   background-color: var(--color-surface);
-  border: 1px solid #E5E2DE;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-lg, 8px);
   padding: 0;
-  overflow: hidden; /* clips table corners to the card's border-radius */
+  overflow: hidden;
 }
 
 .table-wrap {
@@ -512,14 +525,14 @@ onMounted(async () => {
   text-transform: uppercase;
   color: var(--color-secondary);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid #E5E2DE;
+  border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
 }
 
 .users-table td {
   padding: var(--spacing-sm) var(--spacing-md);
   color: var(--color-primary);
-  border-bottom: 1px solid #E5E2DE;
+  border-bottom: 1px solid var(--color-divider);
   vertical-align: middle;
 }
 
@@ -528,7 +541,7 @@ onMounted(async () => {
 }
 
 .users-table tbody tr:hover td {
-  background-color: #F0EDE9;
+  background-color: var(--color-neutral);
 }
 
 .cell-name {
@@ -574,18 +587,9 @@ onMounted(async () => {
   text-transform: uppercase;
   padding: 2px 8px;
   border-radius: var(--rounded-sm);
-  background-color: #E5E2DE;
+  background-color: var(--color-neutral);
+  border: 1px solid var(--color-border);
   color: var(--color-secondary);
-}
-
-.badge--super {
-  background-color: #1A1C1E;
-  color: #F7F5F2;
-}
-
-.badge--internal {
-  background-color: #E8D5D1;
-  color: var(--color-tertiary);
 }
 
 .org-chip {
@@ -595,7 +599,7 @@ onMounted(async () => {
   letter-spacing: 0.04em;
   padding: 2px 7px;
   border-radius: var(--rounded-sm);
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   color: var(--color-secondary);
   margin-right: 4px;
   white-space: nowrap;
@@ -627,7 +631,7 @@ onMounted(async () => {
   font-family: var(--font-body);
   font-size: 0.875rem;
   font-weight: 500;
-  color: #fff;
+  color: var(--color-on-primary);
   background-color: var(--color-tertiary);
   border: none;
   border-radius: var(--rounded-md);
@@ -642,7 +646,7 @@ onMounted(async () => {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -651,10 +655,11 @@ onMounted(async () => {
 
 .modal {
   background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-lg, 12px);
   width: 100%;
   max-width: 480px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
 }
 
 .modal-header {
@@ -721,7 +726,7 @@ onMounted(async () => {
   font-size: 0.875rem;
   color: var(--color-primary);
   background: var(--color-surface);
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 8px 10px;
   outline: none;
@@ -759,7 +764,7 @@ select.field-input {
   font-size: 0.875rem;
   color: var(--color-secondary);
   background: none;
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 8px 16px;
   cursor: pointer;
@@ -802,7 +807,7 @@ select.field-input {
   font-family: var(--font-body);
   font-size: 0.875rem;
   font-weight: 500;
-  color: #fff;
+  color: var(--color-on-primary);
   background-color: var(--color-tertiary);
   border: none;
   border-radius: var(--rounded-md);
@@ -818,7 +823,7 @@ select.field-input {
   font-family: var(--font-body);
   font-size: 0.875rem;
   font-weight: 500;
-  color: #fff;
+  color: var(--color-on-primary);
   background-color: var(--color-tertiary);
   border: none;
   border-radius: var(--rounded-md);
