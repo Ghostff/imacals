@@ -47,9 +47,10 @@ pub struct CreateUserSchema {
     /// Password in plain text, must be at least 6 characters
     #[validate(length(min = 6, message = "Password must be greater than 6 characters"))]
     pub password: Option<String>,
+    pub phone: Option<String>,
     pub organization_ids: Option<Vec<Uuid>>,
     pub permission_ids: Option<Vec<Uuid>>,
-    pub user_role_id: Uuid,
+    pub user_role_id: Option<Uuid>,
     #[serde(default)]
     pub is_internal: bool,
 }

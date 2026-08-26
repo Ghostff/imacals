@@ -35,8 +35,9 @@ export interface CreateUserPayload {
   last_name: string;
   email: string;
   password?: string;
+  phone?: string;
   organization_ids: string[];
-  user_role_id: string;
+  user_role_id?: string;
 }
 
 export interface UpdateUserPayload {
@@ -45,11 +46,19 @@ export interface UpdateUserPayload {
   email: string;
   phone?: string;
   date_of_birth?: string;
+  organization_ids?: string[];
+  permission_ids?: string[];
+}
+
+export interface ShowUserResponse {
+  user: User;
+  organizations: UserOrganization[];
 }
 
 export const userService = {
-  index:  (): Promise<User[]>                                    => api.get<User[]>('/users'),
-  create: (payload: CreateUserPayload): Promise<{ user: User }> => api.post<{ user: User }>('/users', payload),
+  index:  (): Promise<User[]>                                     => api.get<User[]>('/users'),
+  show:   (id: string): Promise<ShowUserResponse>                 => api.get<ShowUserResponse>(`/users/${id}`),
+  create: (payload: CreateUserPayload): Promise<{ user: User }>  => api.post<{ user: User }>('/users', payload),
   update: (id: string, payload: UpdateUserPayload): Promise<void> => api.put<void>(`/users/${id}`, payload),
-  delete: (id: string): Promise<void>                            => api.delete<void>(`/users/${id}`),
+  delete: (id: string): Promise<void>                             => api.delete<void>(`/users/${id}`),
 };

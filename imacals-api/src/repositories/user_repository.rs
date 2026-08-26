@@ -180,15 +180,17 @@ impl UserRepository {
         f_name: &str,
         l_name: &str,
         email_address: &str,
+        phone: Option<&str>,
         pass: &str,
     ) -> Result<User, Error> {
         Ok(
             sqlx::query_as!(
                 User,
-                "INSERT INTO users (first_name, last_name, email, password, current_logged_in_at) VALUES ($1, $2, LOWER($3), $4, NOW()) RETURNING *",
+                "INSERT INTO users (first_name, last_name, email, phone, password, current_logged_in_at) VALUES ($1, $2, LOWER($3), $4, $5, NOW()) RETURNING *",
                 f_name,
                 l_name,
                 email_address,
+                phone,
                 pass
             ).fetch_one(pool).await?
         )

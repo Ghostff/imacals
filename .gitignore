@@ -1,9 +1,11 @@
 **/node_modules/
 **/.env
-ai/history.json
+**/ai/history.json
 **/target/
 **/dist/
 .idea
 .env
-
+**/playwright-report/
+**/playwright-results/
+**/test-results/
 imacals-serverless-api/.env.example

@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, type Ref, type ComputedRef } from 'vue';
+import { ref, computed, onMounted, watch, type Ref, type ComputedRef } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useCart } from '@/composables/useCart';
+import { useAuth } from '@/composables/useAuth';
 import { formatNaira } from '@/services/catalog';
 import { orderService, type PlaceOrderInput, type PlacedOrder } from '@/services/order';
 import { ApiException } from '@/services/api';
 import { SITE } from '@/site';
 
 const { lines, subtotalKobo, clear } = useCart();
+const { user, isAuthenticated } = useAuth();
 
 const form: Ref<Omit<PlaceOrderInput, 'lines'>> = ref({
   customer_name: '',
@@ -18,6 +20,18 @@ const form: Ref<Omit<PlaceOrderInput, 'lines'>> = ref({
   state: 'Abia State',
   note: '',
 });
+
+function autofillFromUser(): void {
+  if (user.value) {
+    const fullName = `${user.value.first_name ?? ''} ${user.value.last_name ?? ''}`.trim();
+    if (fullName && !form.value.customer_name) form.value.customer_name = fullName;
+    if (user.value.email && !form.value.email) form.value.email = user.value.email;
+    if (user.value.phone && !form.value.phone) form.value.phone = user.value.phone;
+  }
+}
+
+watch(user, () => autofillFromUser(), { immediate: true });
+onMounted(() => autofillFromUser());
 
 const submitting: Ref<boolean>        = ref(false);
 const error: Ref<string | null>       = ref(null);
@@ -81,6 +95,13 @@ async function submit(): Promise<void> {
 
       <div v-else class="layout">
         <form class="form" @submit.prevent="submit" novalidate>
+          <div v-if="!isAuthenticated" class="auth-notice">
+            <span>Have an account?</span>
+            <RouterLink class="inline-link" to="/login?redirect=/checkout">
+              Sign in to autofill your details
+            </RouterLink>
+          </div>
+
           <div class="field-grid">
             <div class="field">
               <label class="field-label" for="name">Full name</label>
@@ -169,6 +190,19 @@ async function submit(): Promise<void> {
 
 @media (max-width: 820px) {
   .layout { grid-template-columns: 1fr; }
+}
+
+.auth-notice {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
 }
 
 .field-grid {

@@ -96,8 +96,8 @@ the toggle lives in the account menu at the right of the top nav; in the storefr
 site header.
 
 > **Caveat:** the token-driven views switch cleanly — every view in `imacals-web`, plus
-> `AuthView.vue`, `IntegrationsView.vue` and `AppTopNav.vue` in the dashboard. The older dashboard
-> views (`DomainsView`, `UsersAllView`, `SystemUsersView`, `UserProfileView`, `AdminMapView`) still
+> `AuthView.vue`, `IntegrationsView.vue`, `UsersAllView.vue`, `UserProfileView.vue` and `AppTopNav.vue` in the dashboard. The older dashboard
+> views (`DomainsView`, `SystemUsersView`, `AdminMapView`) still
 > hardcode light-palette hexes for borders and hovers, so they read as light-on-dark until they get
 > a token pass.
 

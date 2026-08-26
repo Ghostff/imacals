@@ -18,6 +18,7 @@ const { isDark, toggleTheme } = useTheme();
 
 const nav: NavItem[] = [
   { label: 'Products', key: 'products', to: '/products' },
+  { label: 'Users', key: 'users', to: '/users/all' },
   { label: 'Integrations', key: 'integrations', to: '/integrations' },
 ];
 
@@ -31,6 +32,11 @@ function toggle(key: string): void {
 
 function close(): void {
   openKey.value = null;
+}
+
+function isNavActive(item: NavItem): boolean {
+  if (item.key === 'users') return route.path.startsWith('/users');
+  return route.path === item.to;
 }
 
 const displayName: ComputedRef<string> = computed<string>(() => {
@@ -65,7 +71,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
         <RouterLink
           :to="item.to"
           class="nav-link"
-          :class="{ 'nav-link--active': route.path === item.to }"
+          :class="{ 'nav-link--active': isNavActive(item) }"
           @click="close"
         >
           {{ item.label }}

@@ -37,6 +37,7 @@ impl UserService {
             &body.first_name,
             &body.last_name,
             &email,
+            body.phone.as_deref().empty_as_none(),
             &password,
         ).await {
             Ok(u) => Ok(u),

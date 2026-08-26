@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, type Ref, type ComputedRef } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   userProfileService,
   uploadDocumentXhr,
@@ -11,6 +11,7 @@ import { userService, type User, type UpdateUserPayload } from '@/services/user'
 import { ApiException } from '@/services/api';
 
 const route = useRoute();
+const router = useRouter();
 const userId = route.params.id as string;
 
 type Tab = 'profile' | 'documents' | 'bank';
@@ -54,7 +55,6 @@ const basicError: Ref<string | null>        = ref(null);
 const basicSuccess: Ref<boolean>            = ref(false);
 
 // ── Per-slot upload state ─────────────────────────────────────────────────
-// uploadProgress and uploadError are keyed by document_type
 const uploadProgress: Ref<Record<string, number>>       = ref({});
 const uploadError:    Ref<Record<string, string | null>> = ref({});
 const uploading:      Ref<Record<string, boolean>>       = ref({});
@@ -66,7 +66,6 @@ const bankForm: Ref<CreateBankAccountPayload> = ref({
 });
 const bankSaving: Ref<boolean>   = ref(false);
 const bankError: Ref<string|null> = ref(null);
-
 
 // ── Load ──────────────────────────────────────────────────────────────────
 onMounted(async () => {
@@ -142,8 +141,6 @@ async function uploadDocument(docType: string, event: Event): Promise<void> {
   try {
     const slot = DOCUMENT_SLOTS[docType];
 
-    // Single-upload slots: silently replace by deleting every existing file
-    // for this slot before uploading the new one.
     if (!slot.allowMultiple) {
       const existing = documents.value.filter((d) => d.file_type === slot.fileType);
       await Promise.all(existing.map((d) => userProfileService.deleteDocument(userId, d.id)));
@@ -188,28 +185,43 @@ async function removeBankAccount(accountId: string): Promise<void> {
   bankAccounts.value = bankAccounts.value.filter((a) => a.id !== accountId);
 }
 
-
 function maskAccount(num: string): string {
   return '•••• ' + num.slice(-4);
 }
-
-
 </script>
 
 <template>
   <div class="page">
+    <div class="back-wrap">
+      <button class="back-link" type="button" @click="router.push('/users/all')">
+        ← Back to All Users
+      </button>
+    </div>
+
     <div v-if="loading" class="state-msg">Loading…</div>
     <div v-else-if="error" class="state-msg state-msg--error">{{ error }}</div>
 
     <template v-else>
       <!-- Header -->
-      <p class="page-label">Users</p>
+      <p class="page-label">User Account</p>
       <div class="profile-header">
         <div>
           <h1 class="page-title">{{ targetUser?.first_name }} {{ targetUser?.last_name }}</h1>
           <p class="profile-email">{{ targetUser?.email }}</p>
         </div>
-        <span v-if="targetUser?.user_role" class="role-badge">{{ targetUser.user_role.title }}</span>
+        <div class="profile-badges">
+          <span v-if="targetUser?.is_superuser" class="badge badge--super">Superuser</span>
+          <span v-if="targetUser?.is_internal" class="badge badge--internal">Internal</span>
+          <span v-if="targetUser?.user_role" class="role-badge">{{ targetUser.user_role.title }}</span>
+        </div>
+      </div>
+
+      <!-- Organizations summary -->
+      <div v-if="targetUser?.organizations?.length" class="orgs-banner">
+        <span class="orgs-label">Organizations:</span>
+        <span v-for="org in targetUser.organizations" :key="org.id" class="org-chip">
+          {{ org.name }}
+        </span>
       </div>
 
       <!-- Tabs -->
@@ -247,7 +259,7 @@ function maskAccount(num: string): string {
               </div>
               <div class="field">
                 <label class="field-label">Phone</label>
-                <input v-model="basicForm.phone" class="field-input" type="tel" placeholder="+1 (555) 000-0000" />
+                <input v-model="basicForm.phone" class="field-input" type="tel" placeholder="0800 000 0000" />
               </div>
               <div class="field">
                 <label class="field-label">Date of Birth</label>
@@ -255,13 +267,12 @@ function maskAccount(num: string): string {
               </div>
             </div>
             <div v-if="basicError" class="form-error">{{ basicError }}</div>
-            <div v-if="basicSuccess" class="form-success">Saved.</div>
+            <div v-if="basicSuccess" class="form-success">Saved successfully.</div>
             <button type="submit" class="btn-primary" :disabled="basicSaving">
-              {{ basicSaving ? 'Saving…' : 'Save' }}
+              {{ basicSaving ? 'Saving…' : 'Save Changes' }}
             </button>
           </form>
         </div>
-
       </section>
 
       <!-- ── Documents tab ── -->
@@ -351,7 +362,7 @@ function maskAccount(num: string): string {
                 <input v-model="bankForm.account_number" class="field-input" type="text" required />
               </div>
               <div class="field">
-                <label class="field-label">Routing Number</label>
+                <label class="field-label">Routing Number / Sort Code</label>
                 <input v-model="bankForm.routing_number" class="field-input" type="text" required />
               </div>
               <div class="field field--checkbox">
@@ -376,6 +387,26 @@ function maskAccount(num: string): string {
 <style scoped>
 .page { padding: 48px var(--spacing-lg); }
 
+.back-wrap {
+  margin-bottom: var(--spacing-md);
+}
+
+.back-link {
+  background: none;
+  border: none;
+  font-family: var(--font-label);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: var(--color-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s;
+}
+
+.back-link:hover {
+  color: var(--color-primary);
+}
+
 .page-label {
   font-family: var(--font-label);
   font-size: 0.75rem;
@@ -389,7 +420,9 @@ function maskAccount(num: string): string {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: var(--spacing-lg);
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-md);
 }
 
 .page-title {
@@ -407,6 +440,13 @@ function maskAccount(num: string): string {
   margin-top: 4px;
 }
 
+.profile-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .role-badge {
   display: inline-block;
   font-family: var(--font-label);
@@ -415,16 +455,71 @@ function maskAccount(num: string): string {
   text-transform: uppercase;
   padding: 4px 10px;
   border-radius: var(--rounded-sm);
-  background-color: #E5E2DE;
+  background-color: var(--color-neutral);
+  border: 1px solid var(--color-border);
   color: var(--color-secondary);
-  margin-top: 8px;
+}
+
+.badge {
+  display: inline-block;
+  font-family: var(--font-label);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--rounded-sm);
+  border: 1px solid var(--color-border);
+}
+
+.badge--super {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+
+.badge--internal {
+  background-color: var(--color-neutral);
+  color: var(--color-tertiary);
+  border-color: var(--color-tertiary);
+}
+
+.orgs-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-lg);
+  padding: 10px 14px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+}
+
+.orgs-label {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--color-secondary);
+  text-transform: uppercase;
+}
+
+.org-chip {
+  display: inline-block;
+  font-family: var(--font-label);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: var(--rounded-sm);
+  background-color: var(--color-neutral);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
 }
 
 /* ── Tabs ── */
 .tabs {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid #E5E2DE;
+  border-bottom: 1px solid var(--color-border);
   margin-bottom: var(--spacing-lg);
 }
 
@@ -445,7 +540,7 @@ function maskAccount(num: string): string {
 
 .tab-btn--active {
   color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+  border-bottom-color: var(--color-tertiary);
   font-weight: 500;
 }
 
@@ -460,8 +555,11 @@ function maskAccount(num: string): string {
   margin-bottom: 16px;
 }
 
+@media (max-width: 600px) {
+  .field-grid { grid-template-columns: 1fr; }
+}
+
 .field { display: flex; flex-direction: column; gap: 5px; }
-.field--grow { flex: 1; }
 .field--checkbox { justify-content: flex-end; padding-bottom: 4px; }
 
 .field-label {
@@ -477,7 +575,7 @@ function maskAccount(num: string): string {
   font-size: 0.875rem;
   color: var(--color-primary);
   background: var(--color-surface);
-  border: 1px solid #E0DED9;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 8px 10px;
   outline: none;
@@ -487,7 +585,6 @@ function maskAccount(num: string): string {
 }
 
 .field-input:focus { border-color: var(--color-primary); }
-.field-textarea { resize: vertical; }
 
 select.field-input {
   appearance: none;
@@ -512,7 +609,7 @@ select.field-input {
   font-family: var(--font-body);
   font-size: 0.875rem;
   font-weight: 500;
-  color: #fff;
+  color: var(--color-on-primary);
   background-color: var(--color-tertiary);
   border: none;
   border-radius: var(--rounded-md);
@@ -523,29 +620,28 @@ select.field-input {
 
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-primary:not(:disabled):hover { opacity: 0.88; }
-.btn--self-end { align-self: flex-end; }
 
 .btn-danger-sm {
   font-family: var(--font-body);
   font-size: 0.8rem;
   color: var(--color-tertiary);
   background: none;
-  border: 1px solid currentColor;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-sm);
   padding: 4px 10px;
   cursor: pointer;
-  opacity: 0.7;
+  opacity: 0.8;
   transition: opacity 0.15s;
 }
 
-.btn-danger-sm:hover { opacity: 1; }
+.btn-danger-sm:hover { opacity: 1; border-color: var(--color-tertiary); }
 
 /* ── Cards ── */
 .card-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: var(--spacing-md); }
 
 .card {
   background: var(--color-surface);
-  border: 1px solid #E5E2DE;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 20px;
 }
@@ -588,15 +684,16 @@ select.field-input {
   text-transform: uppercase;
   padding: 2px 8px;
   border-radius: var(--rounded-sm);
-  background: #D5EED5;
-  color: #2A6A2A;
+  background: var(--color-neutral);
+  border: 1px solid var(--color-border);
+  color: var(--color-tertiary);
 }
 
 /* ── Document slots ── */
 .doc-slots { display: flex; flex-direction: column; gap: 16px; }
 
 .doc-slot {
-  border: 1px solid #E5E2DE;
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-md);
   padding: 16px;
 }
@@ -631,7 +728,7 @@ select.field-input {
   border: none;
   cursor: pointer;
   padding: 0;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .doc-remove:hover { opacity: 1; }
@@ -651,18 +748,17 @@ select.field-input {
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--color-primary);
-  background: #F5F3F0;
-  border: 1px solid #E0DED9;
+  background: var(--color-neutral);
+  border: 1px solid var(--color-border);
   border-radius: var(--rounded-sm);
   padding: 6px 14px;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
 }
 
-.upload-btn:hover { background: #EDE9E3; }
+.upload-btn:hover { background: var(--color-surface); }
 .upload-btn--busy { opacity: 0.55; cursor: not-allowed; }
 
-/* Hide the native file input visually */
 .upload-input {
   position: absolute;
   width: 1px;
@@ -676,14 +772,15 @@ select.field-input {
 .progress-wrap {
   margin-top: 8px;
   height: 4px;
-  background: #E5E2DE;
+  background: var(--color-neutral);
+  border: 1px solid var(--color-border);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .progress-bar {
   height: 100%;
-  background: var(--color-primary);
+  background: var(--color-tertiary);
   border-radius: 2px;
   transition: width 0.15s linear;
 }
@@ -695,13 +792,6 @@ select.field-input {
   margin-top: 6px;
 }
 
-.form-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-end;
-}
-
 /* ── Feedback ── */
 .form-error {
   font-family: var(--font-body);
@@ -710,12 +800,10 @@ select.field-input {
   margin-bottom: 10px;
 }
 
-.form-error--inline { width: 100%; margin-bottom: 0; }
-
 .form-success {
   font-family: var(--font-body);
   font-size: 0.8125rem;
-  color: #2A6A2A;
+  color: var(--color-primary);
   margin-bottom: 10px;
 }
 
