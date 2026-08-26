@@ -19,7 +19,14 @@ import {
   updateCategory,
   deleteCategory,
 } from '../src/routes/categories.js';
-import { login, getMe, getOrganizations } from '../src/routes/auth.js';
+import { login, register, getMe, getOrganizations } from '../src/routes/auth.js';
+import {
+  listUsers,
+  getUserById,
+  createUser,
+  updateUser,
+  deleteUser,
+} from '../src/routes/users.js';
 import {
   recordLog,
   getLogs,
@@ -243,6 +250,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // ── Auth ───────────────────────────────────────────────────────────────
+    if (pathname === '/api/auth/register' && method === 'POST') {
+      requestBody = await parseJsonBody(req);
+      const data = await register(requestBody);
+      logAndSendSuccess(data, 201);
+      return;
+    }
+
     if (pathname === '/api/auth/login' && method === 'POST') {
       requestBody = await parseJsonBody(req);
       const data = await login(requestBody);
@@ -255,6 +269,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const data = await getMe(authHeader);
       logAndSendSuccess(data);
       return;
+    }
+
+    // ── Users (Admin & Account Management) ─────────────────────────────────
+    if (pathname === '/api/users' && method === 'GET') {
+      const users = await listUsers();
+      logAndSendSuccess(users);
+      return;
+    }
+
+    if (pathname === '/api/users' && method === 'POST') {
+      requestBody = await parseJsonBody(req);
+      const created = await createUser(requestBody);
+      logAndSendSuccess(created, 201);
+      return;
+    }
+
+    const userIdMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+    if (userIdMatch) {
+      const id = userIdMatch[1];
+      if (method === 'GET') {
+        const userDetails = await getUserById(id);
+        if (!userDetails) return logAndSendError(404, 'User not found', 'NotFound');
+        logAndSendSuccess(userDetails);
+        return;
+      }
+      if (method === 'PUT') {
+        requestBody = await parseJsonBody(req);
+        await updateUser(id, requestBody);
+        logAndSendSuccess({ message: 'User updated successfully' });
+        return;
+      }
+      if (method === 'DELETE') {
+        await deleteUser(id);
+        logAndSendSuccess({ message: 'User deleted successfully' });
+        return;
+      }
     }
 
     // ── Organizations (Admin) ──────────────────────────────────────────────
