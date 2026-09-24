@@ -25,6 +25,9 @@ pub fn init(cfg: &mut web::ServiceConfig) {
                 .route("/{id}", put().to(product_controller::update))
                 .route("/{id}", delete().to(product_controller::delete))
                 .route("/{id}/image", post().to(product_controller::upload_image))
+                .route("/{id}/images", post().to(product_controller::upload_image))
+                .route("/{id}/images/{file_id}/default", put().to(product_controller::set_default_image))
+                .route("/{id}/images/{file_id}", delete().to(product_controller::delete_image))
         )
         .service(
             web::scope("/categories")
@@ -33,6 +36,29 @@ pub fn init(cfg: &mut web::ServiceConfig) {
                 .route("/{id}", get().to(category_controller::show))
                 .route("/{id}", put().to(category_controller::update))
                 .route("/{id}", delete().to(category_controller::delete))
+        )
+        .service(
+            web::scope("/wishlists")
+                // Storefront-facing: any authenticated user. The service enforces ownership.
+                .route("", get().to(wishlist_controller::index))
+                .route("", post().to(wishlist_controller::create))
+                .route("/{id}", get().to(wishlist_controller::show))
+                .route("/{id}", put().to(wishlist_controller::update))
+                .route("/{id}", delete().to(wishlist_controller::delete))
+                .route("/{id}/items", post().to(wishlist_controller::add_item))
+                .route("/{id}/items/{item_id}", delete().to(wishlist_controller::remove_item))
+                // Staff overview, gated.
+                .route("/admin/index", get().to(wishlist_controller::admin_index))
+        )
+        .service(
+            web::scope("/customers")
+                .route("", get().to(customer_controller::index))
+                .route("", post().to(customer_controller::create))
+                // Phone lookup must come before /{id} so the path segment isn't parsed as a UUID.
+                .route("/by-phone/{phone}", get().to(customer_controller::find_by_phone))
+                .route("/{id}", get().to(customer_controller::show))
+                .route("/{id}", put().to(customer_controller::update))
+                .route("/{id}", delete().to(customer_controller::delete))
         )
         .service(
             web::scope("/auth")

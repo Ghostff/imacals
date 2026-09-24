@@ -129,4 +129,34 @@ test.describe('Product detail', () => {
     await page.getByRole('button', { name: 'Add to cart', exact: true }).click();
     await expect(page.locator('.cart-badge')).toHaveText('5');
   });
+
+  test('renders image gallery thumbnails and switches main image on click', async ({ page }) => {
+    const productWithGallery = {
+      ...PRODUCTS[0],
+      image_url: 'https://imacals.com/image-main.jpg',
+      images: [
+        'https://imacals.com/image-main.jpg',
+        'https://imacals.com/image-side.jpg',
+        'https://imacals.com/image-back.jpg',
+      ],
+    };
+
+    await page.route('**/api/catalog/products/rice-50kg', (route: Route) =>
+      route.fulfill(ok(productWithGallery)),
+    );
+
+    await page.goto('/product/rice-50kg');
+
+    const mainImg = page.locator('.media-main .media-img');
+    await expect(mainImg).toHaveAttribute('src', 'https://imacals.com/image-main.jpg');
+
+    const thumbs = page.locator('.gallery-thumbs .thumb-btn');
+    await expect(thumbs).toHaveCount(3);
+    await expect(thumbs.nth(0)).toHaveClass(/thumb-btn--active/);
+
+    // Click the second thumbnail
+    await thumbs.nth(1).click();
+    await expect(mainImg).toHaveAttribute('src', 'https://imacals.com/image-side.jpg');
+    await expect(thumbs.nth(1)).toHaveClass(/thumb-btn--active/);
+  });
 });

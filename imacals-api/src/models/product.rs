@@ -27,6 +27,15 @@ pub struct Product {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+// Image attachment representation for a product.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductImageDto {
+    pub id: Uuid,
+    pub url: String,
+    pub is_default: bool,
+    pub name: String,
+}
+
 // Product representation returned to the public customer storefront.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogProduct {
@@ -41,6 +50,8 @@ pub struct CatalogProduct {
     pub min_order_quantity: i32,
     pub in_stock: bool,
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 // Product representation returned to the staff dashboard.
@@ -61,6 +72,8 @@ pub struct AdminProduct {
     pub min_order_quantity: i32,
     pub in_stock: bool,
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub images: Vec<ProductImageDto>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

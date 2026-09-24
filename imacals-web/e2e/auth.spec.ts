@@ -151,12 +151,13 @@ test.describe('Storefront Authentication & Registration', () => {
     await page.goto('/checkout');
     await page.evaluate((t) => {
       localStorage.setItem('token', t);
-      localStorage.setItem('cart', JSON.stringify({
-        lines: [{
+      // initCart() expects a bare array — see cart.spec.ts.
+      localStorage.setItem('cart', JSON.stringify([
+        {
           product: { id: 'p1', slug: 'rice', name: 'Rice', unit: 'bag', unit_price_kobo: 500000, min_order_quantity: 1, in_stock: true, image_url: null },
           quantity: 1,
-        }],
-      }));
+        },
+      ]));
     }, MOCK_TOKEN);
 
     await page.goto('/checkout');

@@ -92,9 +92,15 @@ pub async fn upload_image(
     crate::gate!(&app.pool, &user, &organization, "products.update");
     let product_id = id.into_inner();
 
-    let mut file_bytes: Vec<u8> = Vec::new();
-    let mut file_name = String::new();
-    let mut mime_type = String::from("image/jpeg");
+    struct UploadedItem {
+        name: String,
+        bytes: Vec<u8>,
+        mime_type: String,
+    }
+
+    let mut files_to_upload: Vec<UploadedItem> = Vec::new();
+    let mut default_index: Option<usize> = None;
+    let mut is_default = false;
 
     while let Some(item) = payload.next().await {
         let mut field = match item {
@@ -103,18 +109,33 @@ pub async fn upload_image(
         };
 
         let disposition = field.content_disposition().cloned();
-        let field_name = disposition.as_ref().and_then(|d| d.get_name()).unwrap_or("");
+        let field_name = disposition.as_ref().and_then(|d| d.get_name()).unwrap_or("").to_string();
 
-        if field_name == "file" || field_name == "image" {
-            file_name = disposition
+        if field_name == "default_index" {
+            let mut val_bytes = Vec::new();
+            while let Some(chunk) = field.next().await {
+                if let Ok(b) = chunk { val_bytes.extend_from_slice(&b); }
+            }
+            if let Ok(s) = String::from_utf8(val_bytes) {
+                default_index = s.trim().parse::<usize>().ok();
+            }
+        } else if field_name == "is_default" {
+            let mut val_bytes = Vec::new();
+            while let Some(chunk) = field.next().await {
+                if let Ok(b) = chunk { val_bytes.extend_from_slice(&b); }
+            }
+            if let Ok(s) = String::from_utf8(val_bytes) {
+                is_default = s.trim() == "true" || s.trim() == "1";
+            }
+        } else if field_name == "file" || field_name == "image" || field_name == "files" || field_name == "files[]" {
+            let file_name = disposition
                 .as_ref()
                 .and_then(|d| d.get_filename())
                 .unwrap_or("product.jpg")
                 .to_string();
 
-            if let Some(ct) = field.content_type() {
-                mime_type = ct.to_string();
-            }
+            let mime_type = field.content_type().map(|ct| ct.to_string()).unwrap_or_else(|| "image/jpeg".to_string());
+            let mut file_bytes = Vec::new();
 
             while let Some(chunk) = field.next().await {
                 match chunk {
@@ -122,26 +143,79 @@ pub async fn upload_image(
                     Err(e) => return HttpResponse::BadRequest().json(json!({ "error": e.to_string() })),
                 }
             }
+
+            if !file_bytes.is_empty() {
+                files_to_upload.push(UploadedItem {
+                    name: file_name,
+                    bytes: file_bytes,
+                    mime_type,
+                });
+            }
         }
     }
 
-    if file_bytes.is_empty() {
+    if files_to_upload.is_empty() {
         return JsonResponse::error(ErrorBag::Validation {
             field: "file".into(),
             message: "No image file uploaded".into(),
         });
     }
 
-    match ProductService::upload_image(
-        &app.pool,
-        &product_id,
-        &user.id,
-        &file_name,
-        &file_bytes,
-        &mime_type,
-    )
-    .await
-    {
+    let mut last_product = None;
+
+    for (idx, item) in files_to_upload.iter().enumerate() {
+        let set_as_default = match default_index {
+            Some(target_idx) => idx == target_idx,
+            None             => is_default && idx == 0,
+        };
+
+        match ProductService::upload_image(
+            &app.pool,
+            &product_id,
+            &user.id,
+            &item.name,
+            &item.bytes,
+            &item.mime_type,
+            set_as_default,
+        )
+        .await
+        {
+            Ok(prod)     => last_product = Some(prod),
+            Err(err_bag) => return JsonResponse::error(err_bag),
+        }
+    }
+
+    match last_product {
+        Some(product) => JsonResponse::success(product),
+        None          => JsonResponse::error(ErrorBag::NotFound("Product".into())),
+    }
+}
+
+pub async fn set_default_image(
+    user: User,
+    organization: Organization,
+    app: Data<AppState>,
+    path: Path<(Uuid, Uuid)>,
+) -> HttpResponse {
+    crate::gate!(&app.pool, &user, &organization, "products.update");
+    let (product_id, file_id) = path.into_inner();
+
+    match ProductService::set_default_image(&app.pool, &product_id, &file_id).await {
+        Ok(product)  => JsonResponse::success(product),
+        Err(err_bag) => JsonResponse::error(err_bag),
+    }
+}
+
+pub async fn delete_image(
+    user: User,
+    organization: Organization,
+    app: Data<AppState>,
+    path: Path<(Uuid, Uuid)>,
+) -> HttpResponse {
+    crate::gate!(&app.pool, &user, &organization, "products.update");
+    let (product_id, file_id) = path.into_inner();
+
+    match ProductService::delete_image(&app.pool, &product_id, &file_id).await {
         Ok(product)  => JsonResponse::success(product),
         Err(err_bag) => JsonResponse::error(err_bag),
     }

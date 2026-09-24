@@ -12,6 +12,7 @@ export interface CatalogProduct {
   min_order_quantity: number;
   in_stock: boolean;
   image_url: string | null;
+  images?: string[];
 }
 
 const FALLBACK_CATALOG: CatalogProduct[] = [
@@ -133,16 +134,23 @@ export async function getCatalogProducts(categorySlug?: string): Promise<Catalog
     const productIds = prods.map((p: any) => p.id);
     const { data: files } = await supabase
       .from('files')
-      .select('fileable_id, absolute_path, created_at')
+      .select('fileable_id, absolute_path, type, created_at')
       .eq('fileable_type', 'products')
       .in('fileable_id', productIds)
       .is('deleted_at', null)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true });
 
     const imageMap = new Map<string, string>();
+    const imagesListMap = new Map<string, string[]>();
+
     if (files) {
       for (const f of files) {
-        if (!imageMap.has(f.fileable_id)) {
+        if (!imagesListMap.has(f.fileable_id)) {
+          imagesListMap.set(f.fileable_id, []);
+        }
+        imagesListMap.get(f.fileable_id)!.push(f.absolute_path);
+
+        if (f.type === 'product-image-default' || !imageMap.has(f.fileable_id)) {
           imageMap.set(f.fileable_id, f.absolute_path);
         }
       }
@@ -160,6 +168,7 @@ export async function getCatalogProducts(categorySlug?: string): Promise<Catalog
       min_order_quantity: Number(p.min_order_quantity) || 1,
       in_stock: Boolean(p.in_stock),
       image_url: imageMap.get(p.id) || null,
+      images: imagesListMap.get(p.id) || [],
     }));
   } catch {
     return categorySlug
@@ -195,15 +204,25 @@ export async function getCatalogProductBySlug(slug: string): Promise<CatalogProd
       return FALLBACK_CATALOG.find((prod) => prod.slug === slug) ?? null;
     }
 
-    const { data: file } = await supabase
+    const { data: files } = await supabase
       .from('files')
-      .select('absolute_path')
+      .select('absolute_path, type, created_at')
       .eq('fileable_type', 'products')
       .eq('fileable_id', p.id)
       .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
+
+    let defaultUrl: string | null = null;
+    const images: string[] = [];
+
+    if (files) {
+      for (const f of files) {
+        images.push(f.absolute_path);
+        if (f.type === 'product-image-default' || !defaultUrl) {
+          defaultUrl = f.absolute_path;
+        }
+      }
+    }
 
     return {
       id: p.id,
@@ -216,7 +235,8 @@ export async function getCatalogProductBySlug(slug: string): Promise<CatalogProd
       unit_price_kobo: Number(p.unit_price_kobo),
       min_order_quantity: Number(p.min_order_quantity) || 1,
       in_stock: Boolean(p.in_stock),
-      image_url: file?.absolute_path || null,
+      image_url: defaultUrl || null,
+      images,
     };
   } catch {
     return FALLBACK_CATALOG.find((prod) => prod.slug === slug) ?? null;

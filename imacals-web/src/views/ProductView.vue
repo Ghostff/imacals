@@ -3,23 +3,33 @@ import { ref, onMounted, type Ref } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { catalogService, formatNaira, type Product } from '@/services/catalog';
 import { useCart } from '@/composables/useCart';
+import { useWishlist } from '@/composables/useWishlist';
+import { useAuth } from '@/composables/useAuth';
 import { ApiException } from '@/services/api';
 import { SITE } from '@/site';
 
 const route  = useRoute();
 const router = useRouter();
 const { add } = useCart();
+const { isAuthenticated } = useAuth();
+const { lists, refresh: refreshWishlist, create: createWishlist, addItem } = useWishlist();
 
 const product: Ref<Product | null> = ref(null);
+const activeImage: Ref<string | null> = ref(null);
 const quantity: Ref<number>        = ref(1);
 const loading: Ref<boolean>        = ref(true);
 const error: Ref<string | null>    = ref(null);
 const added: Ref<boolean>          = ref(false);
 
+const savedTo: Ref<string | null> = ref(null);
+const savingWishlist: Ref<boolean> = ref(false);
+const wishlistError: Ref<string | null> = ref(null);
+
 onMounted(async () => {
   try {
     const found = await catalogService.findProduct(route.params.slug as string);
     product.value  = found;
+    activeImage.value = (found.images && found.images.length > 0) ? found.images[0] : found.image_url;
     // Open on the smallest quantity the warehouse will actually pick.
     quantity.value = found.min_order_quantity;
   } catch (e: unknown) {
@@ -29,6 +39,7 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+  if (isAuthenticated.value) await refreshWishlist();
 });
 
 function addToCart(): void {
@@ -41,6 +52,30 @@ function buyNow(): void {
   addToCart();
   void router.push({ name: 'cart' });
 }
+
+async function saveToWishlist(): Promise<void> {
+  if (!product.value || !isAuthenticated.value) {
+    await router.push({ name: 'login', query: { redirect: route.fullPath } });
+    return;
+  }
+  savingWishlist.value = true;
+  wishlistError.value = null;
+  try {
+    let target = lists.value[0] ?? null;
+    if (!target) {
+      const created = await createWishlist('Saved items');
+      if (!created) throw new Error('Could not create a list.');
+      target = created;
+    }
+    const detail = await addItem(target.id, product.value.id);
+    if (!detail) throw new Error('Could not save this product.');
+    savedTo.value = target.name;
+  } catch (e: unknown) {
+    wishlistError.value = e instanceof Error ? e.message : 'Could not save this product.';
+  } finally {
+    savingWishlist.value = false;
+  }
+}
 </script>
 
 <template>
@@ -49,9 +84,36 @@ function buyNow(): void {
     <p v-else-if="error" class="state-msg state-msg--error">{{ error }}</p>
 
     <div v-else-if="product" class="detail">
-      <div class="media">
-        <img v-if="product.image_url" :src="product.image_url" :alt="product.name" class="media-img" />
-        <span v-else class="media-placeholder" aria-hidden="true">{{ product.name.charAt(0) }}</span>
+      <div class="media-column">
+        <div class="media-main">
+          <img
+            v-if="activeImage || product.image_url"
+            :src="(activeImage || product.image_url)!"
+            :alt="product.name"
+            class="media-img"
+          />
+          <span v-else class="media-placeholder" aria-hidden="true">{{ product.name.charAt(0) }}</span>
+        </div>
+
+        <!-- Thumbnail Gallery -->
+        <div
+          v-if="product.images && product.images.length > 1"
+          class="gallery-thumbs"
+          role="tablist"
+          aria-label="Product images"
+        >
+          <button
+            v-for="(imgUrl, idx) in product.images"
+            :key="idx"
+            type="button"
+            class="thumb-btn"
+            :class="{ 'thumb-btn--active': (activeImage || product.image_url) === imgUrl }"
+            :aria-label="'View image ' + (idx + 1)"
+            @click="activeImage = imgUrl"
+          >
+            <img :src="imgUrl" :alt="product.name + ' thumbnail ' + (idx + 1)" class="thumb-img" />
+          </button>
+        </div>
       </div>
 
       <div class="info">
@@ -98,6 +160,23 @@ function buyNow(): void {
             <button class="btn-primary" type="button" @click="buyNow">Add and view cart</button>
             <button class="btn-secondary" type="button" @click="addToCart">Add to cart</button>
           </div>
+
+          <div class="wishlist-row">
+            <button
+              class="btn-secondary"
+              type="button"
+              :disabled="savingWishlist"
+              @click="saveToWishlist"
+            >
+              {{ savingWishlist ? 'Saving…' : (savedTo ? 'Saved again' : 'Save to wishlist') }}
+            </button>
+            <p v-if="savedTo" class="saved-note" role="status">
+              Saved to <RouterLink class="inline-link" :to="`/wishlists`">{{ savedTo }}</RouterLink>
+            </p>
+            <p v-else-if="wishlistError" class="saved-note saved-note--error" role="alert">
+              {{ wishlistError }}
+            </p>
+          </div>
         </div>
 
         <p v-else class="oos-note">
@@ -124,7 +203,13 @@ function buyNow(): void {
   .detail { grid-template-columns: 1fr; }
 }
 
-.media {
+.media-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.media-main {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -145,6 +230,43 @@ function buyNow(): void {
   font-family: var(--font-display);
   font-size: 5rem;
   color: var(--color-secondary);
+}
+
+.gallery-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.thumb-btn {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border-radius: var(--rounded-md);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+
+.thumb-btn:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.thumb-btn--active {
+  border-color: var(--color-tertiary);
+  box-shadow: 0 0 0 1px var(--color-tertiary);
+}
+
+.thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .title {
@@ -208,6 +330,25 @@ function buyNow(): void {
   flex-wrap: wrap;
   gap: var(--spacing-sm);
   margin-top: var(--spacing-md);
+}
+
+.wishlist-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.saved-note {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--color-secondary);
+}
+
+.saved-note--error {
+  color: var(--color-tertiary);
 }
 
 .oos-note,

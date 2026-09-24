@@ -62,22 +62,19 @@ Describe what a person **does** — their profession or function — not what th
 Job title entries with `organization_id IS NULL` are global/platform defaults available to all orgs.
 Orgs can also create custom job titles scoped to their own `organization_id`.
 
-> **These rows are still the renovation-era set.** `20260510222220_create_organization_user_role_table`
-> seeds `ai`, `broker`, `contractor`, `hml`, `insurance`, `operator`, `project-manager`, `realtor` —
-> none of which describe an Imacals job. They are left in place because nothing has replaced them
-> yet, and code still reads them (`system_user_eligible`, the proof-of-funds gate on the user
-> profile). Replacing them with the real set — order desk, warehouse picker, dispatch rider,
-> delivery manager, accounts — is a migration that has not been written.
-
-The job titles Imacals actually needs, for whoever writes that migration:
+The Imacals ecommerce and distribution job titles (seeded in `20260826120000_seed_imacals_organization_user_roles.up.sql`):
 
 | Job Title | Key | Description |
 |---|---|---|
 | Order Desk | `order-desk` | Takes phone orders and enters them on the customer's behalf. |
-| Warehouse | `warehouse` | Picks and packs orders in the Aba warehouse; adjusts stock. |
-| Dispatch | `dispatch` | Assigns orders to vehicles and routes; confirms delivery. |
+| Warehouse Picker | `warehouse` | Picks and packs orders in the Aba warehouse; adjusts stock. |
+| Dispatch Manager | `dispatch` | Assigns orders to vehicles and routes; confirms delivery. |
 | Rider / Driver | `rider` | Carries the load and captures proof of delivery. |
-| Accounts | `accounts` | Reconciles payments, issues refunds. |
+| Accounts / Finance | `accounts` | Reconciles payments, issues refunds. |
+| Sales Representative | `sales-rep` | Handles client relationships and bulk wholesale orders. |
+| Store Manager | `store-manager` | Oversees warehouse and store distribution operations. |
+| Customer Support | `customer-support` | Assists customers with enquiries and order assistance. |
+| Customer | `customer` | Online and retail customer account. |
 
 ---
 
@@ -122,7 +119,7 @@ the storefront already assumes. `imacals-web` calls `/catalog/products`, `/catal
 | `products` | Built | Tenant & domain-scoped (`unit_price_kobo`, `unit`, `min_order_quantity`, `in_stock`, image file link). |
 | `warehouses` | To build | The Aba base warehouse is the first row. Orders are picked from a warehouse. |
 | `stock_levels` | To build | Per `(product_id, warehouse_id)`. Never a bare column on `products`. |
-| `customers` | To build | A buyer. May exist without a `users` row — phone orders create one from a name and number. |
+| `customers` | Built | Tenant-scoped buyer record. `user_id` links to the storefront account when one exists; phone-only customers have `user_id = NULL`. |
 | `customer_addresses` | To build | Multiple per customer; one default. |
 | `orders` | To build | Carries `channel` (`online` \| `phone`), `reference`, `status`, totals, warehouse. |
 | `order_items` | To build | Line snapshot: unit price copied at order time so later price changes never rewrite history. |
@@ -130,6 +127,8 @@ the storefront already assumes. `imacals-web` calls `/catalog/products`, `/catal
 | `delivery_zones` | To build | Ties a geographic area to a tariff. Should reuse `polygons` / `zones`. |
 | `delivery_fees` | To build | Fee per zone, per weight or value band. |
 | `payments` | To build | Against an order. Partial payment and refund must both be representable. |
+| `wishlists` | Built | Saved list of products owned by a customer. Tenant-scoped; soft-cascades from `customers`. |
+| `wishlist_items` | Built | Line in a wishlist. Unique on `(wishlist_id, product_id)` so the same product cannot appear twice. Soft-cascades from `wishlists` and `products`. |
 
 ### Rules the storefront already depends on
 
@@ -272,6 +271,7 @@ All valid `type` values are defined as a Rust enum (`FileType`) and stored as sn
 | `FileType::UserInitials` | `user-initials` | `users` | A user's initials image |
 | `FileType::UserProofOfFunds` | `user-proof-of-funds` | `users` | Proof-of-funds document |
 | `FileType::ProductImage` | `product-image` | `products` | Catalogue photo for a product |
+| `FileType::ProductImageDefault` | `product-image-default` | `products` | Primary / default catalogue photo for a product |
 | `FileType::OrderAttachment` | `order-attachment` | `orders` | Proof of payment, waybill, proof of delivery |
 
 `ProductImage` and `OrderAttachment` have no owning table yet — they are the file types §3 will

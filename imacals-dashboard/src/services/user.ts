@@ -48,6 +48,7 @@ export interface UpdateUserPayload {
   date_of_birth?: string;
   organization_ids?: string[];
   permission_ids?: string[];
+  user_role_id?: string;
 }
 
 export interface ShowUserResponse {

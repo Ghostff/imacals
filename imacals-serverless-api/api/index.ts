@@ -12,6 +12,9 @@ import {
   updateProduct,
   deleteProduct,
   uploadProductImage,
+  uploadProductImages,
+  setDefaultProductImage,
+  deleteProductImage,
 } from '../src/routes/products.js';
 import {
   listCategories,
@@ -67,11 +70,15 @@ function parseJsonBody(req: IncomingMessage): Promise<any> {
 
 function parseMultipart(
   req: IncomingMessage
-): Promise<{ fields: Record<string, string>; file?: { buffer: Buffer; filename: string; mimeType: string } }> {
+): Promise<{
+  fields: Record<string, string>;
+  files: { buffer: Buffer; filename: string; mimeType: string }[];
+  file?: { buffer: Buffer; filename: string; mimeType: string };
+}> {
   return new Promise((resolve, reject) => {
     const busboy = Busboy({ headers: req.headers });
     const fields: Record<string, string> = {};
-    let fileResult: { buffer: Buffer; filename: string; mimeType: string } | undefined;
+    const files: { buffer: Buffer; filename: string; mimeType: string }[] = [];
 
     busboy.on('field', (fieldname, val) => {
       fields[fieldname] = val;
@@ -82,16 +89,16 @@ function parseMultipart(
       const chunks: Buffer[] = [];
       file.on('data', (data: Buffer) => chunks.push(data));
       file.on('end', () => {
-        fileResult = {
+        files.push({
           buffer: Buffer.concat(chunks),
           filename: filename || 'upload.jpg',
           mimeType: mimeType || 'image/jpeg',
-        };
+        });
       });
     });
 
     busboy.on('finish', () => {
-      resolve({ fields, file: fileResult });
+      resolve({ fields, files, file: files[0] });
     });
 
     busboy.on('error', reject);
@@ -358,14 +365,41 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    // Product Image Upload
-    const productImageMatch = pathname.match(/^\/api\/products\/([^/]+)\/image$/);
-    if (productImageMatch && method === 'POST') {
-      const id = productImageMatch[1];
-      const { file, fields } = await parseMultipart(req);
-      requestBody = { filename: file?.filename, mimeType: file?.mimeType, ...fields };
-      if (!file) return logAndSendError(400, 'No image file uploaded', 'Validation');
-      const updated = await uploadProductImage(id, file.buffer, file.filename, file.mimeType);
+    // Product Images Upload (multiple or single)
+    const productImagesMatch = pathname.match(/^\/api\/products\/([^/]+)\/(?:image|images)$/);
+    if (productImagesMatch && method === 'POST') {
+      const id = productImagesMatch[1];
+      const { files, file, fields } = await parseMultipart(req);
+      const itemsToUpload = files.length > 0 ? files : (file ? [file] : []);
+      if (itemsToUpload.length === 0) return logAndSendError(400, 'No image file uploaded', 'Validation');
+
+      let defaultIndex: number | undefined;
+      if (fields.default_index !== undefined) {
+        const parsed = parseInt(fields.default_index, 10);
+        if (!isNaN(parsed)) defaultIndex = parsed;
+      }
+
+      const updated = await uploadProductImages(id, itemsToUpload, defaultIndex);
+      logAndSendSuccess(updated);
+      return;
+    }
+
+    // Set Default Product Image
+    const setDefaultImageMatch = pathname.match(/^\/api\/products\/([^/]+)\/images\/([^/]+)\/default$/);
+    if (setDefaultImageMatch && method === 'PUT') {
+      const productId = setDefaultImageMatch[1];
+      const fileId = setDefaultImageMatch[2];
+      const updated = await setDefaultProductImage(productId, fileId);
+      logAndSendSuccess(updated);
+      return;
+    }
+
+    // Delete Product Image
+    const deleteImageMatch = pathname.match(/^\/api\/products\/([^/]+)\/images\/([^/]+)$/);
+    if (deleteImageMatch && method === 'DELETE') {
+      const productId = deleteImageMatch[1];
+      const fileId = deleteImageMatch[2];
+      const updated = await deleteProductImage(productId, fileId);
       logAndSendSuccess(updated);
       return;
     }

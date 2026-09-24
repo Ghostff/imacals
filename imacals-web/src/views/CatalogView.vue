@@ -5,23 +5,45 @@ import { catalogService, type Category, type Product } from '@/services/catalog'
 import { ApiException } from '@/services/api';
 import { SITE } from '@/site';
 
-const products: Ref<Product[]>   = ref([]);
-const categories: Ref<Category[]> = ref([]);
-const activeCategory: Ref<string> = ref('');
-const search: Ref<string>         = ref('');
-const loading: Ref<boolean>       = ref(true);
-const error: Ref<string | null>   = ref(null);
+type SortKey = 'featured' | 'name-asc' | 'price-asc' | 'price-desc';
+type PriceInput = number | '';
+
+const products: Ref<Product[]>          = ref<Product[]>([]);
+const categories: Ref<Category[]>       = ref<Category[]>([]);
+const activeCategory: Ref<string>       = ref<string>('');
+const search: Ref<string>               = ref<string>('');
+// Empty string = no constraint; a number means "filter to this naira amount".
+const minPriceNaira: Ref<PriceInput>    = ref<PriceInput>('');
+const maxPriceNaira: Ref<PriceInput>    = ref<PriceInput>('');
+const sortBy: Ref<SortKey>              = ref<SortKey>('featured');
+const loading: Ref<boolean>             = ref<boolean>(true);
+const error: Ref<string | null>         = ref<string | null>(null);
 
 // Filtering runs client-side over the loaded page so typing does not fire a request per keystroke.
 const visible: ComputedRef<Product[]> = computed<Product[]>(() => {
   const term = search.value.trim().toLowerCase();
-  return products.value.filter((p) => {
+  const minKobo = typeof minPriceNaira.value === 'number' ? minPriceNaira.value * 100 : null;
+  const maxKobo = typeof maxPriceNaira.value === 'number' ? maxPriceNaira.value * 100 : null;
+
+  const filtered = products.value.filter((p) => {
     const matchesCategory = !activeCategory.value || p.category_slug === activeCategory.value;
     const matchesTerm = !term
       || p.name.toLowerCase().includes(term)
       || p.description.toLowerCase().includes(term);
-    return matchesCategory && matchesTerm;
+    const matchesMin = minKobo === null || p.unit_price_kobo >= minKobo;
+    const matchesMax = maxKobo === null || p.unit_price_kobo <= maxKobo;
+    return matchesCategory && matchesTerm && matchesMin && matchesMax;
   });
+
+  if (sortBy.value === 'featured') return filtered;
+
+  const sorted = [...filtered];
+  switch (sortBy.value) {
+    case 'name-asc':    sorted.sort((a, b) => a.name.localeCompare(b.name)); break;
+    case 'price-asc':   sorted.sort((a, b) => a.unit_price_kobo - b.unit_price_kobo); break;
+    case 'price-desc':  sorted.sort((a, b) => b.unit_price_kobo - a.unit_price_kobo); break;
+  }
+  return sorted;
 });
 
 onMounted(async () => {
@@ -58,7 +80,7 @@ onMounted(async () => {
       />
     </header>
 
-    <nav v-if="categories.length" class="filters" aria-label="Categories">
+    <nav v-if="categories.length" class="filters" aria-label="Filters">
       <button
         class="filter"
         :class="{ 'filter--active': activeCategory === '' }"
@@ -77,6 +99,40 @@ onMounted(async () => {
       >
         {{ c.name }}
       </button>
+
+      <div class="filter-group" role="group" aria-label="Price range">
+        <label class="filter-label" for="price-min">Price ₦</label>
+        <input
+          id="price-min"
+          v-model.number="minPriceNaira"
+          type="number"
+          min="0"
+          step="100"
+          placeholder="Min"
+          class="price-input"
+          aria-label="Minimum price in naira"
+        />
+        <span class="filter-dash" aria-hidden="true">–</span>
+        <input
+          v-model.number="maxPriceNaira"
+          type="number"
+          min="0"
+          step="100"
+          placeholder="Max"
+          class="price-input"
+          aria-label="Maximum price in naira"
+        />
+      </div>
+
+      <div class="filter-group" role="group" aria-label="Sort">
+        <label class="filter-label" for="sort">Sort</label>
+        <select id="sort" v-model="sortBy" class="sort-select" aria-label="Sort products">
+          <option value="featured">Featured</option>
+          <option value="name-asc">Name A–Z</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+        </select>
+      </div>
     </nav>
 
     <p v-if="loading" class="state-msg">Loading the catalogue…</p>
@@ -85,7 +141,7 @@ onMounted(async () => {
       The catalogue is empty right now. Call {{ SITE.orderLine }} and we will tell you what is in.
     </p>
     <p v-else-if="!visible.length" class="state-msg">
-      Nothing matches that search. Try a different term, or call {{ SITE.orderLine }}.
+      Nothing matches those filters. Call {{ SITE.orderLine }} and we will check the warehouse for you.
     </p>
 
     <div v-else class="grid">
@@ -135,6 +191,59 @@ onMounted(async () => {
   color: var(--color-on-primary);
   background-color: var(--color-primary);
   border-color: var(--color-primary);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-left: var(--spacing-md);
+  border-left: 1px solid var(--color-divider);
+  margin-left: var(--spacing-sm);
+}
+
+.filter-label {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--color-secondary);
+}
+
+.filter-dash {
+  font-family: var(--font-label);
+  color: var(--color-secondary);
+}
+
+.price-input,
+.sort-select {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--color-primary);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.price-input {
+  width: 90px;
+  cursor: text;
+}
+
+.price-input:focus,
+.sort-select:focus {
+  outline: 2px solid var(--color-tertiary);
+  outline-offset: -1px;
+}
+
+@media (max-width: 600px) {
+  .filter-group {
+    border-left: none;
+    padding-left: 0;
+    margin-left: 0;
+  }
 }
 
 .grid {

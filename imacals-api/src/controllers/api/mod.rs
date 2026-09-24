@@ -17,3 +17,5 @@ pub mod attribute_controller;
 pub mod product_controller;
 pub mod category_controller;
 pub mod catalog_controller;
+pub mod customer_controller;
+pub mod wishlist_controller;

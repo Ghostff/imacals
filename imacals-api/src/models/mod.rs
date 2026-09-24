@@ -16,3 +16,5 @@ pub mod integration;
 pub mod attribute;
 pub mod category;
 pub mod product;
+pub mod customer;
+pub mod wishlist;

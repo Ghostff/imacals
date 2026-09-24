@@ -1,5 +1,12 @@
 import { api } from '@/services/api';
 
+export interface ProductImageItem {
+  id: string;
+  url: string;
+  is_default: boolean;
+  name?: string;
+}
+
 export interface Product {
   id: string;
   organization_id: string;
@@ -16,6 +23,7 @@ export interface Product {
   min_order_quantity: number;
   in_stock: boolean;
   image_url: string | null;
+  images?: ProductImageItem[];
   created_at: string;
   updated_at: string;
 }
@@ -78,5 +86,22 @@ export const productService = {
     const formData = new FormData();
     formData.append('file', file);
     return api.upload<Product>(`/products/${id}/image`, formData);
+  },
+
+  async uploadImages(id: string, files: File[], defaultIndex?: number): Promise<Product> {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('files[]', f));
+    if (defaultIndex !== undefined) {
+      formData.append('default_index', defaultIndex.toString());
+    }
+    return api.upload<Product>(`/products/${id}/images`, formData);
+  },
+
+  async setDefaultImage(productId: string, fileId: string): Promise<Product> {
+    return api.put<Product>(`/products/${productId}/images/${fileId}/default`, {});
+  },
+
+  async deleteImage(productId: string, fileId: string): Promise<Product> {
+    return api.delete<Product>(`/products/${productId}/images/${fileId}`);
   },
 };

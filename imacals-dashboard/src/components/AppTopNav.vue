@@ -17,6 +17,7 @@ const { user } = useAuth();
 const { isDark, toggleTheme } = useTheme();
 
 const nav: NavItem[] = [
+  { label: 'Overview', key: 'overview', to: '/' },
   { label: 'Products', key: 'products', to: '/products' },
   { label: 'Users', key: 'users', to: '/users/all' },
   { label: 'Integrations', key: 'integrations', to: '/integrations' },
@@ -35,6 +36,7 @@ function close(): void {
 }
 
 function isNavActive(item: NavItem): boolean {
+  if (item.key === 'overview') return route.path === '/';
   if (item.key === 'users') return route.path.startsWith('/users');
   return route.path === item.to;
 }
@@ -64,7 +66,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 
 <template>
   <header class="topnav">
-    <span class="topnav-brand">imacals</span>
+    <RouterLink to="/" class="topnav-brand">imacals</RouterLink>
 
     <ul class="nav-list">
       <li v-for="item in nav" :key="item.key" class="nav-item">
@@ -130,6 +132,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   font-size: 1.25rem;
   font-weight: 500;
   color: var(--color-primary);
+  text-decoration: none;
   display: flex;
   align-items: center;
   padding-right: var(--spacing-lg);

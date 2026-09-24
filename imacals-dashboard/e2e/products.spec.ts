@@ -136,10 +136,46 @@ test.describe('Products management page', () => {
     await expect(page.locator('.state-msg--error')).toBeVisible();
   });
 
-  test('opens add product modal on click', async ({ page }) => {
+  test('opens add product modal on click and displays images upload tile', async ({ page }) => {
     await page.goto('/products');
     await page.getByRole('button', { name: '+ Add Product', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Add New Product' })).toBeVisible();
     await expect(page.getByLabel('Product Name *')).toBeVisible();
+    await expect(page.getByText('IMAGES', { exact: true })).toBeVisible();
+    await expect(page.locator('.add-img-tile')).toBeVisible();
+    await expect(page.getByText('Add Images')).toBeVisible();
+  });
+
+  test('edit modal renders image thumbnails, default star badge, and allows changing default', async ({ page }) => {
+    const productWithImages = {
+      ...MOCK_PRODUCTS[0],
+      images: [
+        { id: 'f-1', url: 'https://imacals.com/img1.jpg', is_default: true, name: 'img1.jpg' },
+        { id: 'f-2', url: 'https://imacals.com/img2.jpg', is_default: false, name: 'img2.jpg' },
+      ],
+      image_url: 'https://imacals.com/img1.jpg',
+    };
+
+    await page.route('**/api/products', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: 'true', data: [productWithImages] }),
+      }),
+    );
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('heading', { name: 'Edit Product' })).toBeVisible();
+
+    // Check images and default badge
+    const imgCards = page.locator('.img-card');
+    await expect(imgCards).toHaveCount(2);
+    await expect(page.getByText('DEFAULT')).toBeVisible();
+
+    // Click star on second image to make it default
+    const starButtons = page.locator('.img-btn--star');
+    await starButtons.nth(1).click();
+    await expect(imgCards.nth(1)).toHaveClass(/img-card--default/);
   });
 });

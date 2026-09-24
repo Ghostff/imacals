@@ -92,6 +92,16 @@ pub async fn update(
         }
     }
 
+    if let Some(user_role_id) = body.user_role_id {
+        if let Err(e) = sqlx::query!(
+            "UPDATE organization_users SET user_role_id = $1 WHERE user_id = $2 AND deleted_at IS NULL",
+            user_role_id,
+            target_user.id
+        ).execute(&app.pool).await {
+            return JsonResponse::fatal(e, "user_controller.update.set_user_role failed");
+        }
+    }
+
     JsonResponse::success(json!({ "message": "User updated successfully" }))
 }
 

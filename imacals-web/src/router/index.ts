@@ -9,6 +9,8 @@ import TrackOrderView from '@/views/TrackOrderView.vue';
 import RegisterView from '@/views/RegisterView.vue';
 import LoginView from '@/views/LoginView.vue';
 import AccountView from '@/views/AccountView.vue';
+import WishlistsView from '@/views/WishlistsView.vue';
+import WishlistDetailView from '@/views/WishlistDetailView.vue';
 import NotFoundView from '@/views/NotFoundView.vue';
 
 const router = createRouter({
@@ -24,6 +26,8 @@ const router = createRouter({
     { path: '/register',       name: 'register', component: RegisterView, meta: { guestOnly: true } },
     { path: '/login',          name: 'login',    component: LoginView,    meta: { guestOnly: true } },
     { path: '/account',        name: 'account',  component: AccountView,  meta: { requiresAuth: true } },
+    { path: '/wishlists',      name: 'wishlists', component: WishlistsView, meta: { requiresAuth: true } },
+    { path: '/wishlists/:id',  name: 'wishlist-detail', component: WishlistDetailView, meta: { requiresAuth: true } },
     { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
   ],
   // Storefront browsing is vertical: land at the top of each product or category page.

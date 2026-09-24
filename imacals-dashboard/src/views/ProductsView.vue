@@ -53,9 +53,18 @@ interface ProductForm {
   min_order_quantity: number;
   in_stock: boolean;
   description: string;
-  image_file: File | null;
-  image_preview: string | null;
 }
+
+export interface FormImageItem {
+  id?: string;
+  url: string;
+  file?: File;
+  is_default: boolean;
+}
+
+const addImages: Ref<FormImageItem[]>           = ref([]);
+const editImages: Ref<FormImageItem[]>          = ref([]);
+const editDeletedImageIds: Ref<string[]>        = ref([]);
 
 const addForm: Ref<ProductForm> = ref({
   name: '',
@@ -66,8 +75,6 @@ const addForm: Ref<ProductForm> = ref({
   min_order_quantity: 1,
   in_stock: true,
   description: '',
-  image_file: null,
-  image_preview: null,
 });
 
 const editForm: Ref<ProductForm> = ref({
@@ -79,8 +86,6 @@ const editForm: Ref<ProductForm> = ref({
   min_order_quantity: 1,
   in_stock: true,
   description: '',
-  image_file: null,
-  image_preview: null,
 });
 
 // Category quick create
@@ -108,18 +113,45 @@ function onAddCategoryNameChange(): void {
   categorySlug.value = slugify(categoryName.value);
 }
 
-function onImageSelect(event: Event, isEdit: boolean): void {
+function onImagesSelected(event: Event, isEdit: boolean): void {
   const input = event.target as HTMLInputElement;
   if (!input.files || input.files.length === 0) return;
-  const file = input.files[0];
-  const preview = URL.createObjectURL(file);
+  const targetList = isEdit ? editImages : addImages;
 
-  if (isEdit) {
-    editForm.value.image_file = file;
-    editForm.value.image_preview = preview;
-  } else {
-    addForm.value.image_file = file;
-    addForm.value.image_preview = preview;
+  for (let i = 0; i < input.files.length; i++) {
+    const file = input.files[i];
+    const previewUrl = URL.createObjectURL(file);
+    const hasDefault = targetList.value.some((img) => img.is_default);
+    targetList.value.push({
+      url: previewUrl,
+      file,
+      is_default: !hasDefault && targetList.value.length === 0,
+    });
+  }
+
+  if (!targetList.value.some((img) => img.is_default) && targetList.value.length > 0) {
+    targetList.value[0].is_default = true;
+  }
+  input.value = '';
+}
+
+function setDefaultImage(index: number, isEdit: boolean): void {
+  const targetList = isEdit ? editImages : addImages;
+  targetList.value = targetList.value.map((img, idx) => ({
+    ...img,
+    is_default: idx === index,
+  }));
+}
+
+function removeImage(index: number, isEdit: boolean): void {
+  const targetList = isEdit ? editImages : addImages;
+  const removed = targetList.value[index];
+  if (isEdit && removed && removed.id) {
+    editDeletedImageIds.value.push(removed.id);
+  }
+  targetList.value.splice(index, 1);
+  if (removed?.is_default && targetList.value.length > 0) {
+    targetList.value[0].is_default = true;
   }
 }
 
@@ -174,9 +206,8 @@ function openAddModal(): void {
     min_order_quantity: 1,
     in_stock: true,
     description: '',
-    image_file: null,
-    image_preview: null,
   };
+  addImages.value = [];
   modalError.value = null;
   showAddModal.value = true;
 }
@@ -192,9 +223,28 @@ function openEditModal(prod: Product): void {
     min_order_quantity: prod.min_order_quantity,
     in_stock: prod.in_stock,
     description: prod.description ?? '',
-    image_file: null,
-    image_preview: prod.image_url,
   };
+
+  editDeletedImageIds.value = [];
+  if (prod.images && prod.images.length > 0) {
+    editImages.value = prod.images.map((img) => ({
+      id: img.id,
+      url: img.url,
+      is_default: img.is_default,
+    }));
+  } else if (prod.image_url) {
+    editImages.value = [{
+      url: prod.image_url,
+      is_default: true,
+    }];
+  } else {
+    editImages.value = [];
+  }
+
+  if (editImages.value.length > 0 && !editImages.value.some((img) => img.is_default)) {
+    editImages.value[0].is_default = true;
+  }
+
   modalError.value = null;
   showEditModal.value = true;
 }
@@ -254,9 +304,15 @@ async function submitAddProduct(): Promise<void> {
 
     let created = await productService.create(payload);
 
-    // If an image was chosen, upload it now
-    if (f.image_file) {
-      created = await productService.uploadImage(created.id, f.image_file);
+    // If images were added, upload them with default index
+    const newFiles = addImages.value.filter((img) => img.file).map((img) => img.file!);
+    if (newFiles.length > 0) {
+      const defaultIdx = addImages.value.findIndex((img) => img.is_default);
+      created = await productService.uploadImages(
+        created.id,
+        newFiles,
+        defaultIdx >= 0 ? defaultIdx : 0,
+      );
     }
 
     products.value = [created, ...products.value];
@@ -305,9 +361,34 @@ async function submitEditProduct(): Promise<void> {
 
     let updated = await productService.update(activeProduct.value.id, payload);
 
-    if (f.image_file) {
-      updated = await productService.uploadImage(activeProduct.value.id, f.image_file);
+    // 1. Delete removed existing images
+    for (const fileId of editDeletedImageIds.value) {
+      try {
+        await productService.deleteImage(activeProduct.value.id, fileId);
+      } catch {}
     }
+
+    // 2. Upload newly added files
+    const newFilesWithMeta = editImages.value.filter((img) => img.file);
+    if (newFilesWithMeta.length > 0) {
+      const newFiles = newFilesWithMeta.map((img) => img.file!);
+      const defaultNewIdx = newFilesWithMeta.findIndex((img) => img.is_default);
+      updated = await productService.uploadImages(
+        activeProduct.value.id,
+        newFiles,
+        defaultNewIdx >= 0 ? defaultNewIdx : undefined,
+      );
+    }
+
+    // 3. Set existing default image if an existing image with id is default
+    const defaultExisting = editImages.value.find((img) => img.is_default && img.id);
+    if (defaultExisting && defaultExisting.id) {
+      try {
+        updated = await productService.setDefaultImage(activeProduct.value.id, defaultExisting.id);
+      } catch {}
+    }
+
+    updated = await productService.get(activeProduct.value.id).catch(() => updated);
 
     products.value = products.value.map((p) => (p.id === updated.id ? updated : p));
     showEditModal.value = false;
@@ -586,17 +667,59 @@ async function submitAddCategory(): Promise<void> {
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="add-img">Product Image</label>
-            <input
-              id="add-img"
-              type="file"
-              accept="image/*"
-              class="file-input"
-              @change="(e) => onImageSelect(e, false)"
-            />
-            <div v-if="addForm.image_preview" class="image-preview-box">
-              <img :src="addForm.image_preview" alt="Preview" class="preview-img" />
-              <span class="preview-label">Image Selected</span>
+            <label class="form-label">IMAGES</label>
+            <div class="images-manager">
+              <div class="image-grid">
+                <div
+                  v-for="(img, idx) in addImages"
+                  :key="img.url"
+                  class="img-card"
+                  :class="{ 'img-card--default': img.is_default }"
+                >
+                  <img :src="img.url" alt="Product image thumbnail" class="img-thumb" />
+
+                  <!-- Star button to set default -->
+                  <button
+                    type="button"
+                    class="img-btn img-btn--star"
+                    :class="{ 'img-btn--active': img.is_default }"
+                    :title="img.is_default ? 'Default Image' : 'Set as default image'"
+                    :aria-label="img.is_default ? 'Default image' : 'Set as default image'"
+                    @click="setDefaultImage(idx, false)"
+                  >
+                    <svg class="star-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                    </svg>
+                  </button>
+
+                  <!-- Remove button -->
+                  <button
+                    type="button"
+                    class="img-btn img-btn--remove"
+                    title="Remove image"
+                    aria-label="Remove image"
+                    @click="removeImage(idx, false)"
+                  >
+                    ✕
+                  </button>
+
+                  <!-- Default badge -->
+                  <span v-if="img.is_default" class="default-badge">DEFAULT</span>
+                </div>
+
+                <!-- Add Images Tile -->
+                <label class="add-img-tile" tabindex="0">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    class="hidden-file-input"
+                    @change="(e) => onImagesSelected(e, false)"
+                  />
+                  <span class="add-img-icon">+</span>
+                  <span class="add-img-text">Add Images</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -716,17 +839,59 @@ async function submitAddCategory(): Promise<void> {
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="edit-img">Replace Product Image</label>
-            <input
-              id="edit-img"
-              type="file"
-              accept="image/*"
-              class="file-input"
-              @change="(e) => onImageSelect(e, true)"
-            />
-            <div v-if="editForm.image_preview" class="image-preview-box">
-              <img :src="editForm.image_preview" alt="Preview" class="preview-img" />
-              <span class="preview-label">Image Selected</span>
+            <label class="form-label">IMAGES</label>
+            <div class="images-manager">
+              <div class="image-grid">
+                <div
+                  v-for="(img, idx) in editImages"
+                  :key="img.id || img.url"
+                  class="img-card"
+                  :class="{ 'img-card--default': img.is_default }"
+                >
+                  <img :src="img.url" alt="Product image thumbnail" class="img-thumb" />
+
+                  <!-- Star button to set default -->
+                  <button
+                    type="button"
+                    class="img-btn img-btn--star"
+                    :class="{ 'img-btn--active': img.is_default }"
+                    :title="img.is_default ? 'Default Image' : 'Set as default image'"
+                    :aria-label="img.is_default ? 'Default image' : 'Set as default image'"
+                    @click="setDefaultImage(idx, true)"
+                  >
+                    <svg class="star-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                    </svg>
+                  </button>
+
+                  <!-- Remove button -->
+                  <button
+                    type="button"
+                    class="img-btn img-btn--remove"
+                    title="Remove image"
+                    aria-label="Remove image"
+                    @click="removeImage(idx, true)"
+                  >
+                    ✕
+                  </button>
+
+                  <!-- Default badge -->
+                  <span v-if="img.is_default" class="default-badge">DEFAULT</span>
+                </div>
+
+                <!-- Add Images Tile -->
+                <label class="add-img-tile" tabindex="0">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    class="hidden-file-input"
+                    @change="(e) => onImagesSelected(e, true)"
+                  />
+                  <span class="add-img-icon">+</span>
+                  <span class="add-img-text">Add Images</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -1266,6 +1431,154 @@ async function submitAddCategory(): Promise<void> {
 .preview-label {
   font-size: 0.75rem;
   color: var(--color-secondary);
+}
+
+/* ── Multi-image Manager Grid ── */
+.images-manager {
+  margin-top: 6px;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 12px;
+}
+
+.img-card {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--rounded-md);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.img-card--default {
+  border-color: var(--color-tertiary);
+  box-shadow: 0 0 0 1.5px var(--color-tertiary);
+}
+
+.img-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.img-btn {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(14, 16, 19, 0.78);
+  color: var(--color-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  backdrop-filter: blur(4px);
+  transition: all 0.15s ease;
+  z-index: 2;
+}
+
+.img-btn:hover {
+  background: rgba(14, 16, 19, 0.95);
+  color: var(--color-primary);
+  transform: scale(1.08);
+}
+
+.img-btn--star {
+  top: 6px;
+  left: 6px;
+}
+
+.img-btn--star.img-btn--active {
+  color: #fbbf24;
+  background: rgba(14, 16, 19, 0.9);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.img-btn--remove {
+  top: 6px;
+  right: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.img-btn--remove:hover {
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+.default-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  background: #0e1013;
+  color: #ecedee;
+  font-family: var(--font-label);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.add-img-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--rounded-md);
+  background-color: var(--color-surface);
+  cursor: pointer;
+  padding: 8px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.add-img-tile:hover,
+.add-img-tile:focus-within {
+  border-color: var(--color-primary);
+  background-color: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+}
+
+.add-img-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--color-secondary);
+  margin-bottom: 4px;
+}
+
+.add-img-tile:hover .add-img-icon {
+  color: var(--color-primary);
+}
+
+.add-img-text {
+  font-family: var(--font-label);
+  font-size: 0.7rem;
+  color: var(--color-secondary);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
 }
 
 .modal-foot {

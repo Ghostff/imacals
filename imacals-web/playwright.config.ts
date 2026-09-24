@@ -20,7 +20,10 @@ export default defineConfig({
   webServer: {
     // Specs mock the catalogue with page.route(), so the preview fallback must be off — otherwise
     // the service short-circuits before fetch and the routes never fire.
-    command: 'VITE_USE_PREVIEW_CATALOG=false npm run dev',
+    command: 'npm run dev',
+    env: {
+      VITE_USE_PREVIEW_CATALOG: 'false',
+    },
     url: 'http://localhost:5175',
     reuseExistingServer: !process.env.CI,
   },

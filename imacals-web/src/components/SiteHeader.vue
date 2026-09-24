@@ -4,12 +4,14 @@ import { RouterLink, useRouter } from 'vue-router';
 import { useCart } from '@/composables/useCart';
 import { useTheme } from '@/composables/useTheme';
 import { useAuth } from '@/composables/useAuth';
+import { useWishlist } from '@/composables/useWishlist';
 import { SITE } from '@/site';
 
 const router = useRouter();
 const { itemCount } = useCart();
 const { isDark, toggleTheme } = useTheme();
 const { user, isAuthenticated, displayName, initials, logout } = useAuth();
+const { totalCount } = useWishlist();
 
 const menuOpen: Ref<boolean> = ref(false);
 
@@ -32,7 +34,10 @@ function onDocClick(e: MouseEvent): void {
   if (!target.closest('.user-menu')) closeMenu();
 }
 
-onMounted(() => document.addEventListener('click', onDocClick));
+onMounted(() => {
+  document.addEventListener('click', onDocClick);
+});
+
 onUnmounted(() => document.removeEventListener('click', onDocClick));
 </script>
 
@@ -74,6 +79,13 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
               <RouterLink class="dropdown-item" to="/account" @click="closeMenu">
                 <span class="dropdown-icon" aria-hidden="true">👤</span>
                 My Account
+              </RouterLink>
+            </li>
+            <li>
+              <RouterLink class="dropdown-item" to="/wishlists" @click="closeMenu">
+                <span class="dropdown-icon" aria-hidden="true">♡</span>
+                <span class="dropdown-label">My Wishlists</span>
+                <span v-if="totalCount > 0" class="dropdown-badge">{{ totalCount }}</span>
               </RouterLink>
             </li>
             <li>
@@ -355,6 +367,21 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   height: 1px;
   margin: 4px 0;
   background-color: var(--color-divider);
+}
+
+.dropdown-label {
+  flex: 1;
+}
+
+.dropdown-badge {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-family: var(--font-label);
+  font-size: 0.7rem;
+  text-align: center;
 }
 
 @media (max-width: 720px) {

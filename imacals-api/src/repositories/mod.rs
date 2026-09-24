@@ -17,3 +17,5 @@ pub mod integration_repository;
 pub mod attribute_repository;
 pub mod category_repository;
 pub mod product_repository;
+pub mod customer_repository;
+pub mod wishlist_repository;

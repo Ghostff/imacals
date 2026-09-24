@@ -68,6 +68,7 @@ pub struct UpdateUserSchema {
     pub date_of_birth: Option<NaiveDate>,
     pub organization_ids: Option<Vec<Uuid>>,
     pub permission_ids: Option<Vec<Uuid>>,
+    pub user_role_id: Option<Uuid>,
 }
 
 /// User domain model reflecting the `users` table.

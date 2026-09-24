@@ -1,5 +1,12 @@
 import { supabase, STORAGE_BUCKET } from '../supabase.js';
 
+export interface AdminProductImage {
+  id: string;
+  url: string;
+  is_default: boolean;
+  name?: string;
+}
+
 export interface AdminProduct {
   id: string;
   organization_id: string;
@@ -16,6 +23,7 @@ export interface AdminProduct {
   min_order_quantity: number;
   in_stock: boolean;
   image_url: string | null;
+  images?: AdminProductImage[];
   created_at: string;
   updated_at: string;
 }
@@ -172,16 +180,29 @@ export async function listAdminProducts(): Promise<AdminProduct[]> {
     const productIds = prods.map((p: any) => p.id);
     const { data: files } = await supabase
       .from('files')
-      .select('fileable_id, absolute_path, created_at')
+      .select('id, fileable_id, absolute_path, type, name, created_at')
       .eq('fileable_type', 'products')
       .in('fileable_id', productIds)
       .is('deleted_at', null)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true });
 
     const imageMap = new Map<string, string>();
+    const imagesMap = new Map<string, AdminProductImage[]>();
+
     if (files) {
       for (const f of files) {
-        if (!imageMap.has(f.fileable_id)) {
+        if (!imagesMap.has(f.fileable_id)) {
+          imagesMap.set(f.fileable_id, []);
+        }
+        const isDefault = f.type === 'product-image-default';
+        imagesMap.get(f.fileable_id)!.push({
+          id: f.id,
+          url: f.absolute_path,
+          is_default: isDefault,
+          name: f.name,
+        });
+
+        if (isDefault || !imageMap.has(f.fileable_id)) {
           imageMap.set(f.fileable_id, f.absolute_path);
         }
       }
@@ -203,6 +224,7 @@ export async function listAdminProducts(): Promise<AdminProduct[]> {
       min_order_quantity: Number(p.min_order_quantity) || 1,
       in_stock: Boolean(p.in_stock),
       image_url: imageMap.get(p.id) || null,
+      images: imagesMap.get(p.id) || [],
       created_at: p.created_at,
       updated_at: p.updated_at,
     }));
@@ -242,15 +264,31 @@ export async function getAdminProductById(id: string): Promise<AdminProduct | nu
   if (error) throw new Error(error.message);
   if (!p) return null;
 
-  const { data: file } = await supabase
+  const { data: files } = await supabase
     .from('files')
-    .select('absolute_path')
+    .select('id, absolute_path, type, name, created_at')
     .eq('fileable_type', 'products')
     .eq('fileable_id', p.id)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('created_at', { ascending: true });
+
+  let defaultUrl: string | null = null;
+  const images: AdminProductImage[] = [];
+
+  if (files) {
+    for (const f of files) {
+      const isDefault = f.type === 'product-image-default';
+      images.push({
+        id: f.id,
+        url: f.absolute_path,
+        is_default: isDefault,
+        name: f.name,
+      });
+      if (isDefault || !defaultUrl) {
+        defaultUrl = f.absolute_path;
+      }
+    }
+  }
 
   return {
     id: p.id,
@@ -267,7 +305,8 @@ export async function getAdminProductById(id: string): Promise<AdminProduct | nu
     unit_price_kobo: Number(p.unit_price_kobo),
     min_order_quantity: Number(p.min_order_quantity) || 1,
     in_stock: Boolean(p.in_stock),
-    image_url: file?.absolute_path || null,
+    image_url: defaultUrl || null,
+    images,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -359,10 +398,11 @@ export async function uploadProductImage(
   buffer: Buffer,
   fileName: string,
   mimeType: string,
+  isDefault: boolean = false,
   userId?: string,
 ): Promise<AdminProduct> {
   const ext = fileName.split('.').pop() || 'jpg';
-  const filePath = `products/${productId}/${Date.now()}.${ext}`;
+  const filePath = `products/${productId}/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
 
   // Ensure storage bucket exists
   await supabase.storage.createBucket(STORAGE_BUCKET, { public: true }).catch(() => {});
@@ -380,13 +420,26 @@ export async function uploadProductImage(
   const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
   const absolutePath = publicUrlData.publicUrl;
 
-  // Mark old images as soft-deleted
-  await supabase
+  // Check existing images
+  const { data: existing } = await supabase
     .from('files')
-    .update({ deleted_at: new Date().toISOString() })
+    .select('id')
     .eq('fileable_type', 'products')
     .eq('fileable_id', productId)
     .is('deleted_at', null);
+
+  const shouldBeDefault = isDefault || !existing || existing.length === 0;
+
+  if (shouldBeDefault && existing && existing.length > 0) {
+    // Demote any existing default
+    await supabase
+      .from('files')
+      .update({ type: 'product-image' })
+      .eq('fileable_type', 'products')
+      .eq('fileable_id', productId)
+      .eq('type', 'product-image-default')
+      .is('deleted_at', null);
+  }
 
   // Resolve user id
   let createdBy = userId;
@@ -400,7 +453,7 @@ export async function uploadProductImage(
     created_by: createdBy,
     fileable_type: 'products',
     fileable_id: productId,
-    type: 'product-image',
+    type: shouldBeDefault ? 'product-image-default' : 'product-image',
     name: fileName,
     absolute_path: absolutePath,
     relative_path: filePath,
@@ -410,5 +463,97 @@ export async function uploadProductImage(
 
   const updated = await getAdminProductById(productId);
   if (!updated) throw new Error('Product not found after image upload');
+  return updated;
+}
+
+export async function uploadProductImages(
+  productId: string,
+  files: { buffer: Buffer; filename: string; mimeType: string }[],
+  defaultIndex?: number,
+  userId?: string,
+): Promise<AdminProduct> {
+  let lastProduct: AdminProduct | null = null;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    const isDefault = defaultIndex !== undefined ? i === defaultIndex : false;
+    lastProduct = await uploadProductImage(productId, f.buffer, f.filename, f.mimeType, isDefault, userId);
+  }
+
+  const updated = await getAdminProductById(productId);
+  if (!updated) throw new Error('Product not found after uploading images');
+  return updated;
+}
+
+export async function setDefaultProductImage(
+  productId: string,
+  fileId: string,
+): Promise<AdminProduct> {
+  // Demote existing default
+  await supabase
+    .from('files')
+    .update({ type: 'product-image' })
+    .eq('fileable_type', 'products')
+    .eq('fileable_id', productId)
+    .is('deleted_at', null);
+
+  // Set new default
+  const { error } = await supabase
+    .from('files')
+    .update({ type: 'product-image-default' })
+    .eq('id', fileId)
+    .eq('fileable_type', 'products')
+    .eq('fileable_id', productId)
+    .is('deleted_at', null);
+
+  if (error) throw new Error(`Could not set default image: ${error.message}`);
+
+  const updated = await getAdminProductById(productId);
+  if (!updated) throw new Error('Product not found after setting default image');
+  return updated;
+}
+
+export async function deleteProductImage(
+  productId: string,
+  fileId: string,
+): Promise<AdminProduct> {
+  const { data: targetFile } = await supabase
+    .from('files')
+    .select('type')
+    .eq('id', fileId)
+    .maybeSingle();
+
+  // Soft-delete
+  const { error } = await supabase
+    .from('files')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', fileId)
+    .eq('fileable_type', 'products')
+    .eq('fileable_id', productId)
+    .is('deleted_at', null);
+
+  if (error) throw new Error(`Could not delete image: ${error.message}`);
+
+  // If deleted was default, promote first remaining
+  if (targetFile?.type === 'product-image-default') {
+    const { data: remaining } = await supabase
+      .from('files')
+      .select('id')
+      .eq('fileable_type', 'products')
+      .eq('fileable_id', productId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (remaining) {
+      await supabase
+        .from('files')
+        .update({ type: 'product-image-default' })
+        .eq('id', remaining.id);
+    }
+  }
+
+  const updated = await getAdminProductById(productId);
+  if (!updated) throw new Error('Product not found after deleting image');
   return updated;
 }

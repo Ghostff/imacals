@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, type Ref, type ComputedRef } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { userService, type User, type UserOrganization, type CreateUserPayload } from '@/services/user';
 import { organizationUserRoleService, type OrganizationUserRole } from '@/services/organization_user_role';
 import { organizationService, type Org } from '@/services/organization';
 import { ApiException } from '@/services/api';
 
+const route  = useRoute();
 const router = useRouter();
 const users: Ref<User[]>                    = ref([]);
 const userRoles: Ref<OrganizationUserRole[]> = ref([]);
@@ -38,7 +39,7 @@ function openModal(): void {
     email: '',
     password: '',
     phone: '',
-    organization_ids: imacalsOrg ? [imacalsOrg.id] : [],
+    organization_ids: imacalsOrg ? [imacalsOrg.id] : (orgs.value[0] ? [orgs.value[0].id] : []),
     user_role_id: userRoles.value[0]?.id ?? '',
   };
   submitError.value = null;
@@ -65,12 +66,103 @@ async function submitUser(): Promise<void> {
 
     const result = await userService.create(payload);
     // Prepend the new user to the list
-    users.value = [{ ...result.user, organizations: [], role: null, user_role: null }, ...users.value];
+    const matchedRole = userRoles.value.find((r) => r.id === form.value.user_role_id);
+    const matchedOrgs = orgs.value.filter((o) => form.value.organization_ids.includes(o.id));
+    users.value = [{
+      ...result.user,
+      organizations: matchedOrgs.length > 0 ? matchedOrgs.map((o) => ({ id: o.id, name: o.name, slug: o.slug })) : [],
+      role: null,
+      user_role: matchedRole ? { id: matchedRole.id, name: matchedRole.name, title: matchedRole.title } : null,
+    }, ...users.value];
     closeModal();
   } catch (e: unknown) {
     submitError.value = e instanceof ApiException ? e.message : 'Failed to create user.';
   } finally {
     submitting.value = false;
+  }
+}
+
+// ── Edit User modal ───────────────────────────────────────────────────────
+const showEditModal: Ref<boolean>       = ref(false);
+const userToEdit: Ref<User | null>      = ref(null);
+const editSubmitting: Ref<boolean>      = ref(false);
+const editSubmitError: Ref<string|null> = ref(null);
+
+const editForm: Ref<{
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  organization_ids: string[];
+  user_role_id: string;
+}> = ref({
+  first_name: '',
+  last_name: '',
+  email: '',
+  phone: '',
+  organization_ids: [],
+  user_role_id: '',
+});
+
+function openEditModal(u: User): void {
+  userToEdit.value = u;
+  const imacalsOrg = orgs.value.find((o) => o.slug === IMACALS_SLUG);
+  const currentOrgIds = u.organizations && u.organizations.length > 0
+    ? u.organizations.map((o) => o.id)
+    : (imacalsOrg ? [imacalsOrg.id] : (orgs.value[0] ? [orgs.value[0].id] : []));
+
+  editForm.value = {
+    first_name: u.first_name,
+    last_name: u.last_name,
+    email: u.email,
+    phone: u.phone ?? '',
+    organization_ids: currentOrgIds,
+    user_role_id: u.user_role?.id ?? (userRoles.value[0]?.id ?? ''),
+  };
+  editSubmitError.value = null;
+  showEditModal.value   = true;
+}
+
+function closeEditModal(): void {
+  showEditModal.value = false;
+  userToEdit.value    = null;
+}
+
+async function submitEditUser(): Promise<void> {
+  if (!userToEdit.value) return;
+  editSubmitError.value = null;
+  editSubmitting.value  = true;
+  try {
+    const payload = {
+      first_name:       editForm.value.first_name.trim(),
+      last_name:        editForm.value.last_name.trim(),
+      email:            editForm.value.email.trim(),
+      phone:            editForm.value.phone?.trim() || undefined,
+      organization_ids: editForm.value.organization_ids.length > 0 ? editForm.value.organization_ids : undefined,
+      user_role_id:     editForm.value.user_role_id || undefined,
+    };
+    await userService.update(userToEdit.value.id, payload);
+
+    const matchedRole = userRoles.value.find((r) => r.id === editForm.value.user_role_id);
+    const matchedOrgs = orgs.value.filter((o) => editForm.value.organization_ids.includes(o.id));
+
+    const index = users.value.findIndex((u) => u.id === userToEdit.value!.id);
+    if (index !== -1) {
+      users.value[index] = {
+        ...users.value[index],
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        email: payload.email,
+        phone: payload.phone ?? null,
+        user_role: matchedRole ? { id: matchedRole.id, name: matchedRole.name, title: matchedRole.title } : users.value[index].user_role,
+        organizations: matchedOrgs.length > 0 ? matchedOrgs.map((o) => ({ id: o.id, name: o.name, slug: o.slug })) : users.value[index].organizations,
+      };
+    }
+    closeEditModal();
+  } catch (e: unknown) {
+    editSubmitError.value = e instanceof ApiException ? e.message : 'Failed to update user.';
+  } finally {
+    editSubmitting.value = false;
   }
 }
 
@@ -158,6 +250,10 @@ onMounted(async () => {
     users.value     = usersResult;
     userRoles.value = userRolesResult;
     orgs.value      = orgsResult;
+
+    if (route.query.add === '1' || route.query.action === 'new') {
+      openModal();
+    }
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Failed to load users.';
   } finally {
@@ -257,7 +353,10 @@ onMounted(async () => {
                 <td>{{ formatDate(u.last_logged_in_at) }}</td>
                 <td>{{ formatDate(u.created_at) }}</td>
                 <td class="cell-actions">
-                  <button class="btn-row-delete" type="button" @click.stop="openDeleteModal(u)">Delete</button>
+                  <div class="row-actions">
+                    <button class="btn-row-edit" type="button" @click.stop="openEditModal(u)">Edit</button>
+                    <button class="btn-row-delete" type="button" @click.stop="openDeleteModal(u)">Delete</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -353,6 +452,64 @@ onMounted(async () => {
             <button type="button" class="btn-cancel" @click="closeModal">Cancel</button>
             <button type="submit" class="btn-submit" :disabled="submitting">
               {{ submitting ? 'Creating…' : 'Create User' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Edit User modal -->
+  <Teleport to="body">
+    <div v-if="showEditModal" class="modal-backdrop" @click.self="closeEditModal">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+        <div class="modal-header">
+          <h2 id="edit-modal-title" class="modal-title">Edit User</h2>
+          <button class="modal-close" type="button" aria-label="Close" @click="closeEditModal">✕</button>
+        </div>
+
+        <form class="modal-body" @submit.prevent="submitEditUser">
+          <div class="field-row">
+            <div class="field">
+              <label class="field-label">First Name</label>
+              <input v-model="editForm.first_name" class="field-input" type="text" required placeholder="Jane" />
+            </div>
+            <div class="field">
+              <label class="field-label">Last Name</label>
+              <input v-model="editForm.last_name" class="field-input" type="text" required placeholder="Doe" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Email</label>
+            <input v-model="editForm.email" class="field-input" type="email" required placeholder="jane@example.com" />
+          </div>
+
+          <div class="field">
+            <label class="field-label">Phone Number <span class="field-optional">(optional)</span></label>
+            <input v-model="editForm.phone" class="field-input" type="tel" placeholder="0800 000 0000" />
+          </div>
+
+          <div class="field">
+            <label class="field-label">Organization</label>
+            <select v-model="editForm.organization_ids[0]" class="field-input" required>
+              <option v-for="o in orgs" :key="o.id" :value="o.id">{{ o.name }}</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Job Title</label>
+            <select v-model="editForm.user_role_id" class="field-input" required>
+              <option v-for="r in userRoles" :key="r.id" :value="r.id">{{ r.title }}</option>
+            </select>
+          </div>
+
+          <div v-if="editSubmitError" class="modal-error">{{ editSubmitError }}</div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-cancel" @click="closeEditModal">Cancel</button>
+            <button type="submit" class="btn-submit" :disabled="editSubmitting">
+              {{ editSubmitting ? 'Saving…' : 'Save Changes' }}
             </button>
           </div>
         </form>
@@ -773,8 +930,29 @@ select.field-input {
 
 .btn-cancel:hover { border-color: var(--color-primary); color: var(--color-primary); }
 
-/* ── Delete row button ── */
+/* ── Row action buttons ── */
 .cell-actions { width: 1px; white-space: nowrap; }
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-row-edit {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.users-table tbody tr:hover .btn-row-edit { opacity: 0.75; }
+.btn-row-edit:hover { opacity: 1 !important; text-decoration: underline; }
 
 .btn-row-delete {
   font-family: var(--font-body);

@@ -9,3 +9,4 @@
 **/playwright-results/
 **/test-results/
 imacals-serverless-api/.env.example
+.freebuff/project-id

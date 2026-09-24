@@ -1,7 +1,9 @@
 use sqlx::{Error, PgPool};
 use uuid::Uuid;
 
-use crate::models::product::{AdminProduct, CatalogProduct, Product};
+use crate::models::file::FileType;
+use crate::models::product::{AdminProduct, CatalogProduct, Product, ProductImageDto};
+use crate::repositories::file_repository::FileRepository;
 
 pub struct ProductRepository;
 
@@ -11,7 +13,7 @@ impl ProductRepository {
         pool: &PgPool,
         category_slug: Option<&str>,
     ) -> Result<Vec<CatalogProduct>, Error> {
-        match category_slug {
+        let mut products = match category_slug {
             Some(cat_slug) => {
                 sqlx::query_as!(
                     CatalogProduct,
@@ -26,15 +28,17 @@ impl ProductRepository {
                         p.unit_price_kobo,
                         p.min_order_quantity,
                         p.in_stock,
-                        f.absolute_path as "image_url?"
+                        f.absolute_path as "image_url?",
+                        '{}'::text[] as "images!"
                     FROM products p
                     JOIN categories c ON c.id = p.category_id AND c.deleted_at IS NULL
                     LEFT JOIN LATERAL (
                         SELECT absolute_path FROM files
                         WHERE fileable_type = 'products'
                           AND fileable_id = p.id
+                          AND type IN ('product-image', 'product-image-default')
                           AND deleted_at IS NULL
-                        ORDER BY created_at DESC
+                        ORDER BY CASE WHEN type = 'product-image-default' THEN 0 ELSE 1 END, created_at ASC
                         LIMIT 1
                     ) f ON true
                     WHERE p.deleted_at IS NULL
@@ -43,7 +47,7 @@ impl ProductRepository {
                     cat_slug
                 )
                 .fetch_all(pool)
-                .await
+                .await?
             }
             None => {
                 sqlx::query_as!(
@@ -59,29 +63,41 @@ impl ProductRepository {
                         p.unit_price_kobo,
                         p.min_order_quantity,
                         p.in_stock,
-                        f.absolute_path as "image_url?"
+                        f.absolute_path as "image_url?",
+                        '{}'::text[] as "images!"
                     FROM products p
                     JOIN categories c ON c.id = p.category_id AND c.deleted_at IS NULL
                     LEFT JOIN LATERAL (
                         SELECT absolute_path FROM files
                         WHERE fileable_type = 'products'
                           AND fileable_id = p.id
+                          AND type IN ('product-image', 'product-image-default')
                           AND deleted_at IS NULL
-                        ORDER BY created_at DESC
+                        ORDER BY CASE WHEN type = 'product-image-default' THEN 0 ELSE 1 END, created_at ASC
                         LIMIT 1
                     ) f ON true
                     WHERE p.deleted_at IS NULL
                     ORDER BY p.created_at DESC"#
                 )
                 .fetch_all(pool)
-                .await
+                .await?
+            }
+        };
+
+        for prod in &mut products {
+            if let Ok(pid) = Uuid::parse_str(&prod.id) {
+                if let Ok(files) = FileRepository::find_product_images(pool, &pid).await {
+                    prod.images = files.into_iter().map(|f| f.absolute_path).collect();
+                }
             }
         }
+
+        Ok(products)
     }
 
     // Find a single product by slug for storefront display.
     pub async fn find_by_slug_for_catalog(pool: &PgPool, slug: &str) -> Result<CatalogProduct, Error> {
-        sqlx::query_as!(
+        let mut prod = sqlx::query_as!(
             CatalogProduct,
             r#"SELECT
                 p.id::text as "id!",
@@ -94,15 +110,17 @@ impl ProductRepository {
                 p.unit_price_kobo,
                 p.min_order_quantity,
                 p.in_stock,
-                f.absolute_path as "image_url?"
+                f.absolute_path as "image_url?",
+                '{}'::text[] as "images!"
             FROM products p
             JOIN categories c ON c.id = p.category_id AND c.deleted_at IS NULL
             LEFT JOIN LATERAL (
                 SELECT absolute_path FROM files
                 WHERE fileable_type = 'products'
                   AND fileable_id = p.id
+                  AND type IN ('product-image', 'product-image-default')
                   AND deleted_at IS NULL
-                ORDER BY created_at DESC
+                ORDER BY CASE WHEN type = 'product-image-default' THEN 0 ELSE 1 END, created_at ASC
                 LIMIT 1
             ) f ON true
             WHERE p.slug = $1
@@ -111,7 +129,15 @@ impl ProductRepository {
             slug
         )
         .fetch_one(pool)
-        .await
+        .await?;
+
+        if let Ok(pid) = Uuid::parse_str(&prod.id) {
+            if let Ok(files) = FileRepository::find_product_images(pool, &pid).await {
+                prod.images = files.into_iter().map(|f| f.absolute_path).collect();
+            }
+        }
+
+        Ok(prod)
     }
 
     // List products for the back-office dashboard scoped to an organization.
@@ -119,7 +145,7 @@ impl ProductRepository {
         pool: &PgPool,
         organization_id: &Uuid,
     ) -> Result<Vec<AdminProduct>, Error> {
-        sqlx::query_as!(
+        let mut products = sqlx::query_as!(
             AdminProduct,
             r#"SELECT
                 p.id,
@@ -145,8 +171,9 @@ impl ProductRepository {
                 SELECT absolute_path FROM files
                 WHERE fileable_type = 'products'
                   AND fileable_id = p.id
+                  AND type IN ('product-image', 'product-image-default')
                   AND deleted_at IS NULL
-                ORDER BY created_at DESC
+                ORDER BY CASE WHEN type = 'product-image-default' THEN 0 ELSE 1 END, created_at ASC
                 LIMIT 1
             ) f ON true
             WHERE p.organization_id = $1
@@ -155,7 +182,20 @@ impl ProductRepository {
             organization_id
         )
         .fetch_all(pool)
-        .await
+        .await?;
+
+        for prod in &mut products {
+            if let Ok(files) = FileRepository::find_product_images(pool, &prod.id).await {
+                prod.images = files.into_iter().map(|f| ProductImageDto {
+                    id: f.id,
+                    url: f.absolute_path,
+                    is_default: f.file_type == FileType::ProductImageDefault,
+                    name: f.name,
+                }).collect();
+            }
+        }
+
+        Ok(products)
     }
 
     // Find raw product record by id.
@@ -176,7 +216,7 @@ impl ProductRepository {
 
     // Find detailed admin product by id.
     pub async fn find_admin_product_by_id(pool: &PgPool, id: &Uuid) -> Result<AdminProduct, Error> {
-        sqlx::query_as!(
+        let mut prod = sqlx::query_as!(
             AdminProduct,
             r#"SELECT
                 p.id,
@@ -202,8 +242,9 @@ impl ProductRepository {
                 SELECT absolute_path FROM files
                 WHERE fileable_type = 'products'
                   AND fileable_id = p.id
+                  AND type IN ('product-image', 'product-image-default')
                   AND deleted_at IS NULL
-                ORDER BY created_at DESC
+                ORDER BY CASE WHEN type = 'product-image-default' THEN 0 ELSE 1 END, created_at ASC
                 LIMIT 1
             ) f ON true
             WHERE p.id = $1
@@ -212,7 +253,18 @@ impl ProductRepository {
             id
         )
         .fetch_one(pool)
-        .await
+        .await?;
+
+        if let Ok(files) = FileRepository::find_product_images(pool, &prod.id).await {
+            prod.images = files.into_iter().map(|f| ProductImageDto {
+                id: f.id,
+                url: f.absolute_path,
+                is_default: f.file_type == FileType::ProductImageDefault,
+                name: f.name,
+            }).collect();
+        }
+
+        Ok(prod)
     }
 
     // Create a new product.

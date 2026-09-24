@@ -318,6 +318,55 @@ test.describe('Users — All Users page', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
+  // ── Edit user ─────────────────────────────────────────────────────────────
+
+  test('opens edit modal with prefilled values and saves updated user', async ({ page }) => {
+    let putCalled = false;
+    let putPayload: any = null;
+
+    await page.route('**/api/users/user-1', async (route) => {
+      if (route.request().method() === 'PUT') {
+        putCalled = true;
+        putPayload = route.request().postDataJSON();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: 'true', data: { message: 'User updated successfully' } }),
+        });
+      }
+    });
+
+    await page.goto('/users/all');
+    const firstRow = page.locator('.users-table tbody tr').first();
+    await firstRow.locator('.btn-row-edit').click();
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.locator('#edit-modal-title')).toContainText('Edit User');
+
+    // Check prefilled values
+    const firstNameInput = page.locator('.modal input[type="text"]').first();
+    await expect(firstNameInput).toHaveValue('Alice');
+
+    // Edit user name and submit
+    await firstNameInput.fill('Alicia');
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+
+    expect(putCalled).toBe(true);
+    expect(putPayload.first_name).toBe('Alicia');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await expect(page.locator('.users-table')).toContainText('Alicia Smith');
+  });
+
+  test('job title options are available in add and edit modals', async ({ page }) => {
+    await page.goto('/users/all');
+    await page.getByRole('button', { name: '+ Add User' }).click();
+
+    const jobTitleSelect = page.locator('.modal select').nth(1);
+    const options = await jobTitleSelect.locator('option').allTextContents();
+    expect(options.length).toBeGreaterThan(0);
+    expect(options).toContain('Back Office');
+  });
+
   // ── Empty / error states ──────────────────────────────────────────────────
 
   test('shows no-match message when filters exclude all users', async ({ page }) => {

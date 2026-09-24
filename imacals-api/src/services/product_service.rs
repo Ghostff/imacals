@@ -164,6 +164,7 @@ impl ProductService {
         file_name: &str,
         file_bytes: &[u8],
         mime_type: &str,
+        is_default: bool,
     ) -> Result<AdminProduct, ErrorBag> {
         // Ensure product exists
         let _ = ProductRepository::find_by_id(pool, product_id)
@@ -182,20 +183,38 @@ impl ProductService {
 
         let absolute_path = StorageService::public_url(&relative_path);
 
-        // Remove previous product-image files so only the newest remains active
-        let _ = FileRepository::delete_all_for_owner_by_type(
-            pool,
-            "products",
-            product_id,
-            FileType::ProductImage.as_str(),
-        )
-        .await;
+        // Check existing images for this product
+        let existing = FileRepository::find_product_images(pool, product_id)
+            .await
+            .unwrap_or_default();
+
+        let should_be_default = is_default || existing.is_empty();
+
+        if should_be_default && !existing.is_empty() {
+            // Demote existing default
+            let _ = sqlx::query!(
+                "UPDATE files SET type = 'product-image'
+                 WHERE fileable_type = 'products'
+                   AND fileable_id   = $1
+                   AND type          = 'product-image-default'
+                   AND deleted_at IS NULL",
+                product_id,
+            )
+            .execute(pool)
+            .await;
+        }
+
+        let file_type = if should_be_default {
+            FileType::ProductImageDefault
+        } else {
+            FileType::ProductImage
+        };
 
         let input = CreateFileInput {
             created_by: *user_id,
             fileable_type: "products".to_string(),
             fileable_id: *product_id,
-            file_type: FileType::ProductImage,
+            file_type,
             name: file_name.to_string(),
             absolute_path,
             relative_path,
@@ -206,6 +225,54 @@ impl ProductService {
         FileRepository::create(pool, &input)
             .await
             .map_err(|e| ErrorBag::InternalServerError(format!("FileRepository::create failed: {:?}", e)))?;
+
+        ProductRepository::find_admin_product_by_id(pool, product_id)
+            .await
+            .map_err(|e| ErrorBag::InternalServerError(format!("find_admin_product_by_id failed: {:?}", e)))
+    }
+
+    // Sets a specific product image as the default image.
+    pub async fn set_default_image(
+        pool: &PgPool,
+        product_id: &Uuid,
+        file_id: &Uuid,
+    ) -> Result<AdminProduct, ErrorBag> {
+        let _ = ProductRepository::find_by_id(pool, product_id)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => ErrorBag::NotFound("Product".into()),
+                _ => ErrorBag::InternalServerError(format!("find_by_id failed: {:?}", e)),
+            })?;
+
+        FileRepository::set_default_product_image(pool, product_id, file_id)
+            .await
+            .map_err(|e| ErrorBag::InternalServerError(format!("set_default_product_image failed: {:?}", e)))?;
+
+        ProductRepository::find_admin_product_by_id(pool, product_id)
+            .await
+            .map_err(|e| ErrorBag::InternalServerError(format!("find_admin_product_by_id failed: {:?}", e)))
+    }
+
+    // Deletes an individual product image.
+    pub async fn delete_image(
+        pool: &PgPool,
+        product_id: &Uuid,
+        file_id: &Uuid,
+    ) -> Result<AdminProduct, ErrorBag> {
+        let _ = ProductRepository::find_by_id(pool, product_id)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => ErrorBag::NotFound("Product".into()),
+                _ => ErrorBag::InternalServerError(format!("find_by_id failed: {:?}", e)),
+            })?;
+
+        let rows = FileRepository::delete_product_image(pool, product_id, file_id)
+            .await
+            .map_err(|e| ErrorBag::InternalServerError(format!("delete_product_image failed: {:?}", e)))?;
+
+        if rows == 0 {
+            return Err(ErrorBag::NotFound("Image".into()));
+        }
 
         ProductRepository::find_admin_product_by_id(pool, product_id)
             .await

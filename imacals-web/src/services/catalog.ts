@@ -16,6 +16,7 @@ export interface Product {
   min_order_quantity: number;
   in_stock: boolean;
   image_url: string | null;
+  images?: string[];
 }
 
 export interface Category {

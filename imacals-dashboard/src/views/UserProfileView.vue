@@ -8,6 +8,8 @@ import {
   type UserBankAccount, type CreateBankAccountPayload,
 } from '@/services/user_profile';
 import { userService, type User, type UpdateUserPayload } from '@/services/user';
+import { organizationUserRoleService, type OrganizationUserRole } from '@/services/organization_user_role';
+import { organizationService, type Org } from '@/services/organization';
 import { ApiException } from '@/services/api';
 
 const route = useRoute();
@@ -20,6 +22,8 @@ const activeTab: Ref<Tab> = ref('profile');
 const targetUser: Ref<User | null>            = ref(null);
 const documents: Ref<UserDocument[]>          = ref([]);
 const bankAccounts: Ref<UserBankAccount[]>    = ref([]);
+const userRoles: Ref<OrganizationUserRole[]>  = ref([]);
+const orgs: Ref<Org[]>                        = ref([]);
 const loading: Ref<boolean>                   = ref(true);
 const error: Ref<string | null>               = ref(null);
 
@@ -49,7 +53,7 @@ const availableDocumentTypes: ComputedRef<string[]> = computed(() => {
 });
 
 // ── Basic info form ───────────────────────────────────────────────────────
-const basicForm: Ref<UpdateUserPayload>     = ref({ first_name: '', last_name: '', email: '', phone: '', date_of_birth: '' });
+const basicForm: Ref<UpdateUserPayload>     = ref({ first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', organization_ids: [], user_role_id: '' });
 const basicSaving: Ref<boolean>             = ref(false);
 const basicError: Ref<string | null>        = ref(null);
 const basicSuccess: Ref<boolean>            = ref(false);
@@ -70,23 +74,29 @@ const bankError: Ref<string|null> = ref(null);
 // ── Load ──────────────────────────────────────────────────────────────────
 onMounted(async () => {
   try {
-    const [userResult, docsResult, bankResult] = await Promise.all([
+    const [userResult, docsResult, bankResult, rolesResult, orgsResult] = await Promise.all([
       userService.index().then((list) => list.find((u) => u.id === userId) ?? null),
       userProfileService.getDocuments(userId).catch(() => []),
       userProfileService.getBankAccounts(userId).catch(() => []),
+      organizationUserRoleService.index().catch(() => []),
+      organizationService.index().catch(() => []),
     ]);
 
     targetUser.value   = userResult;
     documents.value    = docsResult;
     bankAccounts.value = bankResult;
+    userRoles.value    = rolesResult;
+    orgs.value         = orgsResult;
 
     if (targetUser.value) {
       basicForm.value = {
-        first_name:    targetUser.value.first_name,
-        last_name:     targetUser.value.last_name,
-        email:         targetUser.value.email,
-        phone:         targetUser.value.phone ?? '',
-        date_of_birth: targetUser.value.date_of_birth ?? '',
+        first_name:       targetUser.value.first_name,
+        last_name:        targetUser.value.last_name,
+        email:            targetUser.value.email,
+        phone:            targetUser.value.phone ?? '',
+        date_of_birth:    targetUser.value.date_of_birth ?? '',
+        organization_ids: targetUser.value.organizations.map((o) => o.id),
+        user_role_id:     targetUser.value.user_role?.id ?? (rolesResult[0]?.id ?? ''),
       };
     }
   } catch (e: unknown) {
@@ -103,13 +113,17 @@ async function saveBasicInfo(): Promise<void> {
   basicSaving.value  = true;
   try {
     await userService.update(userId, {
-      first_name:    basicForm.value.first_name.trim(),
-      last_name:     basicForm.value.last_name.trim(),
-      email:         basicForm.value.email.trim(),
-      phone:         basicForm.value.phone?.trim() || undefined,
-      date_of_birth: basicForm.value.date_of_birth || undefined,
+      first_name:       basicForm.value.first_name.trim(),
+      last_name:        basicForm.value.last_name.trim(),
+      email:            basicForm.value.email.trim(),
+      phone:            basicForm.value.phone?.trim() || undefined,
+      date_of_birth:    basicForm.value.date_of_birth || undefined,
+      organization_ids: basicForm.value.organization_ids && basicForm.value.organization_ids.length > 0 ? basicForm.value.organization_ids : undefined,
+      user_role_id:     basicForm.value.user_role_id || undefined,
     });
     if (targetUser.value) {
+      const matchedRole = userRoles.value.find((r) => r.id === basicForm.value.user_role_id);
+      const matchedOrgs = orgs.value.filter((o) => basicForm.value.organization_ids?.includes(o.id));
       targetUser.value = {
         ...targetUser.value,
         first_name:    basicForm.value.first_name.trim(),
@@ -117,6 +131,8 @@ async function saveBasicInfo(): Promise<void> {
         email:         basicForm.value.email.trim(),
         phone:         basicForm.value.phone?.trim() || null,
         date_of_birth: basicForm.value.date_of_birth || null,
+        user_role:     matchedRole ? { id: matchedRole.id, name: matchedRole.name, title: matchedRole.title } : targetUser.value.user_role,
+        organizations: matchedOrgs.length > 0 ? matchedOrgs.map((o) => ({ id: o.id, name: o.name, slug: o.slug })) : targetUser.value.organizations,
       };
     }
     basicSuccess.value = true;
@@ -264,6 +280,18 @@ function maskAccount(num: string): string {
               <div class="field">
                 <label class="field-label">Date of Birth</label>
                 <input v-model="basicForm.date_of_birth" class="field-input" type="date" />
+              </div>
+              <div class="field">
+                <label class="field-label">Organization</label>
+                <select v-model="basicForm.organization_ids![0]" class="field-input">
+                  <option v-for="o in orgs" :key="o.id" :value="o.id">{{ o.name }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="field-label">Job Title</label>
+                <select v-model="basicForm.user_role_id" class="field-input">
+                  <option v-for="r in userRoles" :key="r.id" :value="r.id">{{ r.title }}</option>
+                </select>
               </div>
             </div>
             <div v-if="basicError" class="form-error">{{ basicError }}</div>

@@ -12,17 +12,19 @@ pub enum FileType {
     UserInitials,        // user-initials        — fileable: users
     UserProofOfFunds,    // user-proof-of-funds  — fileable: users
     ProductImage,        // product-image        — fileable: products
+    ProductImageDefault, // product-image-default — fileable: products (the starred primary image)
     OrderAttachment,     // order-attachment     — fileable: orders (proof of payment, waybill)
 }
 
 impl FileType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            FileType::UserSignature     => "user-signature",
-            FileType::UserInitials      => "user-initials",
-            FileType::UserProofOfFunds  => "user-proof-of-funds",
-            FileType::ProductImage      => "product-image",
-            FileType::OrderAttachment   => "order-attachment",
+            FileType::UserSignature        => "user-signature",
+            FileType::UserInitials         => "user-initials",
+            FileType::UserProofOfFunds     => "user-proof-of-funds",
+            FileType::ProductImage         => "product-image",
+            FileType::ProductImageDefault  => "product-image-default",
+            FileType::OrderAttachment      => "order-attachment",
         }
     }
 }
