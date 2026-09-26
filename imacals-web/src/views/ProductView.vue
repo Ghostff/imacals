@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, type Ref } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
-import { catalogService, formatNaira, type Product } from '@/services/catalog';
+import {
+  catalogService,
+  formatNaira,
+  effectivePriceKobo,
+  discountPercent,
+  discountSavingsKobo,
+  isDiscounted,
+  type Product,
+} from '@/services/catalog';
 import { useCart } from '@/composables/useCart';
 import { useWishlist } from '@/composables/useWishlist';
 import { useAuth } from '@/composables/useAuth';
@@ -117,13 +125,29 @@ async function saveToWishlist(): Promise<void> {
       </div>
 
       <div class="info">
-        <p class="eyebrow">{{ product.category_name }}</p>
+        <div class="header-tags">
+          <p class="eyebrow">{{ product.category_name }}</p>
+          <span v-if="isDiscounted(product)" class="discount-deal-badge">
+            PROMO · {{ discountPercent(product) }}% OFF
+          </span>
+        </div>
         <h1 class="title">{{ product.name }}</h1>
 
-        <p class="price">
-          {{ formatNaira(product.unit_price_kobo) }}
-          <span class="unit">/ {{ product.unit }}</span>
-        </p>
+        <div class="price-container">
+          <p class="price">
+            <template v-if="isDiscounted(product)">
+              <span class="price-effective">{{ formatNaira(effectivePriceKobo(product)) }}</span>
+              <del class="price-original">{{ formatNaira(product.unit_price_kobo) }}</del>
+            </template>
+            <template v-else>
+              {{ formatNaira(product.unit_price_kobo) }}
+            </template>
+            <span class="unit">/ {{ product.unit }}</span>
+          </p>
+          <p v-if="isDiscounted(product)" class="savings-callout">
+            You save {{ formatNaira(discountSavingsKobo(product)) }} per {{ product.unit }} ({{ discountPercent(product) }}% discount)
+          </p>
+        </div>
 
         <p class="description">{{ product.description }}</p>
 
@@ -269,6 +293,25 @@ async function saveToWishlist(): Promise<void> {
   display: block;
 }
 
+.header-tags {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.discount-deal-badge {
+  font-family: var(--font-label);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: var(--rounded-sm);
+  background-color: color-mix(in srgb, var(--color-secondary) 20%, transparent);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+}
+
 .title {
   font-family: var(--font-display);
   font-size: 2.25rem;
@@ -277,9 +320,36 @@ async function saveToWishlist(): Promise<void> {
   margin: var(--spacing-sm) 0;
 }
 
+.price-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
   font-family: var(--font-label);
   font-size: 1.5rem;
+}
+
+.price-effective {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.price-original {
+  font-size: 1.1rem;
+  color: var(--color-secondary);
+}
+
+.savings-callout {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+  letter-spacing: 0.01em;
 }
 
 .unit {

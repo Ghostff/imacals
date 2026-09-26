@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, type Ref, type ComputedRef } from 'vue';
 import ProductCard from '@/components/ProductCard.vue';
-import { catalogService, type Category, type Product } from '@/services/catalog';
+import { catalogService, effectivePriceKobo, isDiscounted, type Category, type Product } from '@/services/catalog';
 import { ApiException } from '@/services/api';
 import { SITE } from '@/site';
 
@@ -11,6 +11,7 @@ type PriceInput = number | '';
 const products: Ref<Product[]>          = ref<Product[]>([]);
 const categories: Ref<Category[]>       = ref<Category[]>([]);
 const activeCategory: Ref<string>       = ref<string>('');
+const onlyDeals: Ref<boolean>           = ref<boolean>(false);
 const search: Ref<string>               = ref<string>('');
 // Empty string = no constraint; a number means "filter to this naira amount".
 const minPriceNaira: Ref<PriceInput>    = ref<PriceInput>('');
@@ -27,12 +28,14 @@ const visible: ComputedRef<Product[]> = computed<Product[]>(() => {
 
   const filtered = products.value.filter((p) => {
     const matchesCategory = !activeCategory.value || p.category_slug === activeCategory.value;
+    const matchesDeals = !onlyDeals.value || isDiscounted(p);
     const matchesTerm = !term
       || p.name.toLowerCase().includes(term)
       || p.description.toLowerCase().includes(term);
-    const matchesMin = minKobo === null || p.unit_price_kobo >= minKobo;
-    const matchesMax = maxKobo === null || p.unit_price_kobo <= maxKobo;
-    return matchesCategory && matchesTerm && matchesMin && matchesMax;
+    const sellingPrice = effectivePriceKobo(p);
+    const matchesMin = minKobo === null || sellingPrice >= minKobo;
+    const matchesMax = maxKobo === null || sellingPrice <= maxKobo;
+    return matchesCategory && matchesDeals && matchesTerm && matchesMin && matchesMax;
   });
 
   if (sortBy.value === 'featured') return filtered;
@@ -40,8 +43,8 @@ const visible: ComputedRef<Product[]> = computed<Product[]>(() => {
   const sorted = [...filtered];
   switch (sortBy.value) {
     case 'name-asc':    sorted.sort((a, b) => a.name.localeCompare(b.name)); break;
-    case 'price-asc':   sorted.sort((a, b) => a.unit_price_kobo - b.unit_price_kobo); break;
-    case 'price-desc':  sorted.sort((a, b) => b.unit_price_kobo - a.unit_price_kobo); break;
+    case 'price-asc':   sorted.sort((a, b) => effectivePriceKobo(a) - effectivePriceKobo(b)); break;
+    case 'price-desc':  sorted.sort((a, b) => effectivePriceKobo(b) - effectivePriceKobo(a)); break;
   }
   return sorted;
 });
@@ -98,6 +101,15 @@ onMounted(async () => {
         @click="activeCategory = c.slug"
       >
         {{ c.name }}
+      </button>
+
+      <button
+        class="filter"
+        :class="{ 'filter--active': onlyDeals }"
+        type="button"
+        @click="onlyDeals = !onlyDeals"
+      >
+        Promotions & Deals
       </button>
 
       <div class="filter-group" role="group" aria-label="Price range">

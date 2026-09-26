@@ -17,6 +17,9 @@ export interface PlaceOrderInput {
   state: string;
   // Free-text note the dispatch desk reads — landmarks, preferred delivery window.
   note?: string;
+  shipping_method?: string;
+  delivery_fee_kobo?: number;
+  tax_kobo?: number;
   lines: OrderLineInput[];
 }
 
@@ -26,6 +29,8 @@ export interface PlacedOrder {
   status: string;
   total_kobo: number;
   delivery_fee_kobo: number;
+  tax_kobo?: number;
+  shipping_method?: string;
   placed_at: string;
 }
 

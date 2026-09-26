@@ -267,3 +267,60 @@ test.describe('Wishlist detail page', () => {
     await expect(page.locator('.state-msg')).toContainText('Nothing here yet');
   });
 });
+
+test.describe('Catalogue product card → save to wishlist', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedAuth(page);
+    await page.route('**/api/catalog/categories', (route: Route) =>
+      route.fulfill(ok([])),
+    );
+    await page.route('**/api/catalog/products*', (route: Route) =>
+      route.fulfill(ok([RICE, DETERGENT])),
+    );
+  });
+
+  test('card heart posts add-item to the first list and flips to saved', async ({ page }) => {
+    let addItemPosted = false;
+
+    await page.route(/\/api\/wishlists$/, (route: Route) => {
+      const req = route.request();
+      if (req.method() === 'GET') return route.fulfill(ok([WISHLIST_SAVED]));
+      return route.fulfill(ok(WISHLIST_SAVED));
+    });
+    await page.route(/\/api\/wishlists\/wl-2\/items/, async (route: Route) => {
+      addItemPosted = true;
+      await route.fulfill(ok({
+        ...WISHLIST_SAVED,
+        items: [{
+          id: 'item-1',
+          wishlist_id: 'wl-2',
+          notes: null,
+          created_at: '2026-09-24T09:00:00Z',
+          updated_at: '2026-09-24T09:00:00Z',
+          product: RICE,
+        }],
+      }));
+    });
+
+    await page.goto('/catalog');
+    await page.getByRole('button', { name: 'Save Long Grain Rice — 50kg Bag to wishlist' }).click();
+
+    await expect(
+      page.getByRole('button', { name: 'Long Grain Rice — 50kg Bag saved to wishlist' }),
+    ).toBeVisible();
+    expect(addItemPosted).toBe(true);
+  });
+
+  test('card heart on a guest account routes to login', async ({ page }) => {
+    // Overwrite the seeded token so the card sees a signed-out visitor.
+    await page.goto('/catalog');
+    await page.evaluate(() => localStorage.removeItem('token'));
+
+    await page.goto('/catalog');
+    await page
+      .getByRole('button', { name: 'Save Long Grain Rice — 50kg Bag to wishlist' })
+      .click();
+
+    await expect(page).toHaveURL(/\/login/);
+  });
+});

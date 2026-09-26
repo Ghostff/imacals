@@ -26,8 +26,16 @@ impl ProductRepository {
                         c.name as "category_name!",
                         p.unit,
                         p.unit_price_kobo,
+                        p.discount_price_kobo,
+                        CASE
+                            WHEN p.discount_price_kobo IS NOT NULL AND p.unit_price_kobo > 0
+                            THEN ROUND(((p.unit_price_kobo - p.discount_price_kobo)::numeric / p.unit_price_kobo::numeric) * 100)::integer
+                            ELSE NULL
+                        END as "discount_percent?",
                         p.min_order_quantity,
                         p.in_stock,
+                        p.is_tax_exempt,
+                        p.tax_rate_basis_points,
                         f.absolute_path as "image_url?",
                         '{}'::text[] as "images!"
                     FROM products p
@@ -61,8 +69,16 @@ impl ProductRepository {
                         c.name as "category_name!",
                         p.unit,
                         p.unit_price_kobo,
+                        p.discount_price_kobo,
+                        CASE
+                            WHEN p.discount_price_kobo IS NOT NULL AND p.unit_price_kobo > 0
+                            THEN ROUND(((p.unit_price_kobo - p.discount_price_kobo)::numeric / p.unit_price_kobo::numeric) * 100)::integer
+                            ELSE NULL
+                        END as "discount_percent?",
                         p.min_order_quantity,
                         p.in_stock,
+                        p.is_tax_exempt,
+                        p.tax_rate_basis_points,
                         f.absolute_path as "image_url?",
                         '{}'::text[] as "images!"
                     FROM products p
@@ -108,8 +124,16 @@ impl ProductRepository {
                 c.name as "category_name!",
                 p.unit,
                 p.unit_price_kobo,
+                p.discount_price_kobo,
+                CASE
+                    WHEN p.discount_price_kobo IS NOT NULL AND p.unit_price_kobo > 0
+                    THEN ROUND(((p.unit_price_kobo - p.discount_price_kobo)::numeric / p.unit_price_kobo::numeric) * 100)::integer
+                    ELSE NULL
+                END as "discount_percent?",
                 p.min_order_quantity,
                 p.in_stock,
+                p.is_tax_exempt,
+                p.tax_rate_basis_points,
                 f.absolute_path as "image_url?",
                 '{}'::text[] as "images!"
             FROM products p
@@ -160,8 +184,16 @@ impl ProductRepository {
                 p.description,
                 p.unit,
                 p.unit_price_kobo,
+                p.discount_price_kobo,
+                CASE
+                    WHEN p.discount_price_kobo IS NOT NULL AND p.unit_price_kobo > 0
+                    THEN ROUND(((p.unit_price_kobo - p.discount_price_kobo)::numeric / p.unit_price_kobo::numeric) * 100)::integer
+                    ELSE NULL
+                END as "discount_percent?",
                 p.min_order_quantity,
                 p.in_stock,
+                p.is_tax_exempt,
+                p.tax_rate_basis_points,
                 f.absolute_path as "image_url?",
                 p.created_at,
                 p.updated_at
@@ -203,8 +235,9 @@ impl ProductRepository {
         sqlx::query_as!(
             Product,
             r#"SELECT id, organization_id, domain_id, category_id, created_by,
-                      name, slug, description, unit, unit_price_kobo,
-                      min_order_quantity, in_stock, created_at, updated_at, deleted_at
+                      name, slug, description, unit, unit_price_kobo, discount_price_kobo,
+                      min_order_quantity, in_stock, is_tax_exempt, tax_rate_basis_points,
+                      created_at, updated_at, deleted_at
                FROM products
                WHERE id = $1 AND deleted_at IS NULL
                LIMIT 1"#,
@@ -231,8 +264,16 @@ impl ProductRepository {
                 p.description,
                 p.unit,
                 p.unit_price_kobo,
+                p.discount_price_kobo,
+                CASE
+                    WHEN p.discount_price_kobo IS NOT NULL AND p.unit_price_kobo > 0
+                    THEN ROUND(((p.unit_price_kobo - p.discount_price_kobo)::numeric / p.unit_price_kobo::numeric) * 100)::integer
+                    ELSE NULL
+                END as "discount_percent?",
                 p.min_order_quantity,
                 p.in_stock,
+                p.is_tax_exempt,
+                p.tax_rate_basis_points,
                 f.absolute_path as "image_url?",
                 p.created_at,
                 p.updated_at
@@ -279,19 +320,23 @@ impl ProductRepository {
         description: Option<&str>,
         unit: &str,
         unit_price_kobo: i64,
+        discount_price_kobo: Option<i64>,
         min_order_quantity: i32,
         in_stock: bool,
+        is_tax_exempt: bool,
+        tax_rate_basis_points: i32,
     ) -> Result<Product, Error> {
         sqlx::query_as!(
             Product,
             r#"INSERT INTO products
                    (organization_id, domain_id, category_id, created_by,
-                    name, slug, description, unit, unit_price_kobo,
-                    min_order_quantity, in_stock)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    name, slug, description, unit, unit_price_kobo, discount_price_kobo,
+                    min_order_quantity, in_stock, is_tax_exempt, tax_rate_basis_points)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                RETURNING id, organization_id, domain_id, category_id, created_by,
-                         name, slug, description, unit, unit_price_kobo,
-                         min_order_quantity, in_stock, created_at, updated_at, deleted_at"#,
+                         name, slug, description, unit, unit_price_kobo, discount_price_kobo,
+                         min_order_quantity, in_stock, is_tax_exempt, tax_rate_basis_points,
+                         created_at, updated_at, deleted_at"#,
             organization_id,
             domain_id,
             category_id,
@@ -301,8 +346,11 @@ impl ProductRepository {
             description,
             unit,
             unit_price_kobo,
+            discount_price_kobo,
             min_order_quantity,
-            in_stock
+            in_stock,
+            is_tax_exempt,
+            tax_rate_basis_points
         )
         .fetch_one(pool)
         .await
@@ -320,13 +368,17 @@ impl ProductRepository {
                    description = $6,
                    unit = $7,
                    unit_price_kobo = $8,
-                   min_order_quantity = $9,
-                   in_stock = $10,
+                   discount_price_kobo = $9,
+                   min_order_quantity = $10,
+                   in_stock = $11,
+                   is_tax_exempt = $12,
+                   tax_rate_basis_points = $13,
                    updated_at = NOW()
                WHERE id = $1 AND deleted_at IS NULL
                RETURNING id, organization_id, domain_id, category_id, created_by,
-                         name, slug, description, unit, unit_price_kobo,
-                         min_order_quantity, in_stock, created_at, updated_at, deleted_at"#,
+                         name, slug, description, unit, unit_price_kobo, discount_price_kobo,
+                         min_order_quantity, in_stock, is_tax_exempt, tax_rate_basis_points,
+                         created_at, updated_at, deleted_at"#,
             product.id,
             product.domain_id,
             product.category_id,
@@ -335,8 +387,11 @@ impl ProductRepository {
             product.description,
             product.unit,
             product.unit_price_kobo,
+            product.discount_price_kobo,
             product.min_order_quantity,
-            product.in_stock
+            product.in_stock,
+            product.is_tax_exempt,
+            product.tax_rate_basis_points
         )
         .fetch_one(pool)
         .await

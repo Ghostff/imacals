@@ -22,11 +22,21 @@ const PRODUCTS = [
     unit: 'carton (48)', unit_price_kobo: 2_760_000, min_order_quantity: 1,
     in_stock: false, image_url: null,
   },
+  {
+    id: 'p4', slug: 'palm-oil-25l', name: 'Palm Oil — 25L Jerrycan',
+    description: 'Pure refined palm oil.',
+    category_slug: 'provisions', category_name: 'Provisions',
+    unit: 'can (25L)', unit_price_kobo: 4_500_000,
+    discount_price_kobo: 3_800_000, discount_percent: 16,
+    min_order_quantity: 1,
+    in_stock: true, image_url: null,
+  },
 ];
 
 const CATEGORIES = [
   { slug: 'foodstuff', name: 'Foodstuff' },
   { slug: 'household', name: 'Household' },
+  { slug: 'provisions', name: 'Provisions' },
 ];
 
 function ok(body: unknown) {
@@ -108,6 +118,21 @@ test.describe('Catalogue', () => {
     await page.goto('/catalog');
     await expect(page.locator('.state-msg')).toContainText('Call');
   });
+
+  test('discounted product displays promo badge and strike-through original price', async ({ page }) => {
+    await page.goto('/catalog');
+    const discountedCard = page.locator('.card', { hasText: 'Palm Oil — 25L Jerrycan' });
+    await expect(discountedCard.locator('.card-discount-badge')).toHaveText('-16%');
+    await expect(discountedCard.locator('.card-price-original')).toContainText('45,000');
+    await expect(discountedCard.locator('.card-price-current')).toContainText('38,000');
+  });
+
+  test('deals filter narrows catalogue to products with active promotional discounts', async ({ page }) => {
+    await page.goto('/catalog');
+    await page.getByRole('button', { name: 'Promotions & Deals' }).click();
+    await expect(page.locator('.card')).toHaveCount(1);
+    await expect(page.getByRole('heading', { name: 'Palm Oil — 25L Jerrycan' })).toBeVisible();
+  });
 });
 
 test.describe('Product detail', () => {
@@ -158,5 +183,24 @@ test.describe('Product detail', () => {
     await thumbs.nth(1).click();
     await expect(mainImg).toHaveAttribute('src', 'https://imacals.com/image-side.jpg');
     await expect(thumbs.nth(1)).toHaveClass(/thumb-btn--active/);
+  });
+
+  test('product detail renders promo deal badge and savings callout', async ({ page }) => {
+    const discounted = {
+      id: 'p4', slug: 'palm-oil-25l', name: 'Palm Oil — 25L Jerrycan',
+      description: 'Pure refined palm oil.',
+      category_slug: 'foodstuff', category_name: 'Foodstuff',
+      unit: 'can (25L)', unit_price_kobo: 4_500_000,
+      discount_price_kobo: 3_800_000, discount_percent: 16,
+      min_order_quantity: 1,
+      in_stock: true, image_url: null,
+    };
+    await page.route('**/api/catalog/products/palm-oil-25l', (route: Route) =>
+      route.fulfill(ok(discounted)));
+    await page.goto('/product/palm-oil-25l');
+    await expect(page.locator('.discount-deal-badge')).toContainText('16% OFF');
+    await expect(page.locator('.price-original')).toContainText('45,000');
+    await expect(page.locator('.price-effective')).toContainText('38,000');
+    await expect(page.locator('.savings-callout')).toContainText('7,000');
   });
 });

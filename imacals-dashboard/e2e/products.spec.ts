@@ -178,4 +178,40 @@ test.describe('Products management page', () => {
     await starButtons.nth(1).click();
     await expect(imgCards.nth(1)).toHaveClass(/img-card--default/);
   });
+
+  test('displays promotional discount slash price and badge in table and supports discount in modal', async ({ page }) => {
+    const discountedProduct = {
+      ...MOCK_PRODUCTS[0],
+      unit_price_kobo: 10_000_000, // ₦100,000
+      discount_price_kobo: 8_500_000, // ₦85,000 (15% off)
+      discount_percent: 15,
+    };
+
+    await page.route('**/api/products', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: 'true', data: [discountedProduct] }),
+      }),
+    );
+
+    await page.goto('/products');
+
+    // Slashed regular price and discounted price are visible in the table cell
+    await expect(page.locator('.price-discounted')).toContainText('85,000');
+    await expect(page.locator('.price-original del')).toContainText('100,000');
+    await expect(page.locator('.discount-pill')).toHaveText('-15%');
+
+    // Open add modal and test discount live calculation
+    await page.getByRole('button', { name: '+ Add Product', exact: true }).click();
+    await page.getByLabel('Price (₦ Naira) *').fill('50000');
+    await page.getByText('Apply promotional discount / slash price').click();
+
+    await expect(page.getByLabel('Discounted Price (₦ Naira) *')).toBeVisible();
+    await page.getByLabel('Discounted Price (₦ Naira) *').fill('40000');
+
+    // Live savings badge and customer price preview
+    await expect(page.locator('.discount-savings-badge')).toContainText('Save ₦10,000 (20% OFF)');
+    await expect(page.locator('.discount-preview-value')).toContainText('40,000');
+  });
 });

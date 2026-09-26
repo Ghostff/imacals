@@ -5,6 +5,7 @@ use crate::controllers::api::{
     user_document_controller, user_bank_account_controller,
     integration_controller, attribute_controller,
     catalog_controller, product_controller, category_controller,
+    customer_controller, wishlist_controller, pricing_controller,
 };
 use actix_web::web;
 use actix_web::web::{delete, get, post, put};
@@ -158,6 +159,11 @@ pub fn init(cfg: &mut web::ServiceConfig) {
                 .route("/eligible-roles", get().to(domain_system_user_controller::eligible_roles))
                 .route("",                post().to(domain_system_user_controller::upsert))
                 .route("/{id}",           delete().to(domain_system_user_controller::delete))
+        )
+        .service(
+            web::scope("/pricing")
+                .route("/calculate", post().to(pricing_controller::calculate))
+                .route("/shipping-quote", post().to(pricing_controller::shipping_quote))
         )
         .default_service(web::to(default_controller::page_not_found));
 }

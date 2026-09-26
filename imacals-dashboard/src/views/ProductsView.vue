@@ -3,6 +3,7 @@ import { ref, computed, onMounted, type Ref, type ComputedRef } from 'vue';
 import {
   productService,
   formatNaira,
+  getTaxStatusLabel,
   type Product,
   type CreateProductPayload,
   type UpdateProductPayload,
@@ -50,6 +51,10 @@ interface ProductForm {
   category_id: string;
   unit: string;
   price_naira: number | null;
+  has_discount: boolean;
+  discount_naira: number | null;
+  is_tax_exempt: boolean;
+  tax_rate_percent: number;
   min_order_quantity: number;
   in_stock: boolean;
   description: string;
@@ -72,6 +77,10 @@ const addForm: Ref<ProductForm> = ref({
   category_id: '',
   unit: 'bag (50kg)',
   price_naira: null,
+  has_discount: false,
+  discount_naira: null,
+  is_tax_exempt: false,
+  tax_rate_percent: 7.5,
   min_order_quantity: 1,
   in_stock: true,
   description: '',
@@ -83,10 +92,21 @@ const editForm: Ref<ProductForm> = ref({
   category_id: '',
   unit: '',
   price_naira: null,
+  has_discount: false,
+  discount_naira: null,
+  is_tax_exempt: false,
+  tax_rate_percent: 7.5,
   min_order_quantity: 1,
   in_stock: true,
   description: '',
 });
+
+function computeDiscountPercent(priceNaira: number | null, discountNaira: number | null): number | null {
+  if (!priceNaira || !discountNaira || discountNaira <= 0 || discountNaira >= priceNaira) {
+    return null;
+  }
+  return Math.round(((priceNaira - discountNaira) / priceNaira) * 100);
+}
 
 // Category quick create
 const categoryName: Ref<string>        = ref('');
@@ -203,6 +223,10 @@ function openAddModal(): void {
     category_id: categories.value[0]?.id ?? '',
     unit: 'bag (50kg)',
     price_naira: null,
+    has_discount: false,
+    discount_naira: null,
+    is_tax_exempt: false,
+    tax_rate_percent: 7.5,
     min_order_quantity: 1,
     in_stock: true,
     description: '',
@@ -220,6 +244,10 @@ function openEditModal(prod: Product): void {
     category_id: prod.category_id,
     unit: prod.unit,
     price_naira: Math.round(prod.unit_price_kobo / 100),
+    has_discount: !!(prod.discount_price_kobo && prod.discount_price_kobo > 0),
+    discount_naira: prod.discount_price_kobo ? Math.round(prod.discount_price_kobo / 100) : null,
+    is_tax_exempt: prod.is_tax_exempt ?? false,
+    tax_rate_percent: prod.is_tax_exempt ? 0 : ((prod.tax_rate_basis_points ?? 750) / 100),
     min_order_quantity: prod.min_order_quantity,
     in_stock: prod.in_stock,
     description: prod.description ?? '',
@@ -288,6 +316,16 @@ async function submitAddProduct(): Promise<void> {
     modalError.value = 'Price must be greater than zero Naira';
     return;
   }
+  if (f.has_discount && f.discount_naira) {
+    if (f.discount_naira <= 0) {
+      modalError.value = 'Discount price must be greater than zero Naira';
+      return;
+    }
+    if (f.discount_naira >= f.price_naira) {
+      modalError.value = 'Discount price must be strictly less than the regular price';
+      return;
+    }
+  }
 
   submitting.value = true;
   try {
@@ -297,6 +335,9 @@ async function submitAddProduct(): Promise<void> {
       category_id: f.category_id,
       unit: f.unit.trim(),
       unit_price_kobo: Math.round(f.price_naira * 100),
+      discount_price_kobo: f.has_discount && f.discount_naira ? Math.round(f.discount_naira * 100) : null,
+      is_tax_exempt: f.is_tax_exempt,
+      tax_rate_basis_points: f.is_tax_exempt ? 0 : Math.round(Number(f.tax_rate_percent || 7.5) * 100),
       min_order_quantity: Number(f.min_order_quantity) || 1,
       in_stock: f.in_stock,
       description: f.description.trim() || undefined,
@@ -345,6 +386,16 @@ async function submitEditProduct(): Promise<void> {
     modalError.value = 'Price must be greater than zero Naira';
     return;
   }
+  if (f.has_discount && f.discount_naira) {
+    if (f.discount_naira <= 0) {
+      modalError.value = 'Discount price must be greater than zero Naira';
+      return;
+    }
+    if (f.discount_naira >= f.price_naira) {
+      modalError.value = 'Discount price must be strictly less than the regular price';
+      return;
+    }
+  }
 
   submitting.value = true;
   try {
@@ -354,6 +405,9 @@ async function submitEditProduct(): Promise<void> {
       category_id: f.category_id,
       unit: f.unit.trim(),
       unit_price_kobo: Math.round(f.price_naira * 100),
+      discount_price_kobo: f.has_discount && f.discount_naira ? Math.round(f.discount_naira * 100) : null,
+      is_tax_exempt: f.is_tax_exempt,
+      tax_rate_basis_points: f.is_tax_exempt ? 0 : Math.round(Number(f.tax_rate_percent || 7.5) * 100),
       min_order_quantity: Number(f.min_order_quantity) || 1,
       in_stock: f.in_stock,
       description: f.description.trim() || undefined,
@@ -516,6 +570,7 @@ async function submitAddCategory(): Promise<void> {
             <th>Category</th>
             <th>Unit</th>
             <th>Price</th>
+            <th>Tax</th>
             <th>MOQ</th>
             <th>Stock Status</th>
             <th class="th-actions">Actions</th>
@@ -537,7 +592,23 @@ async function submitAddCategory(): Promise<void> {
               <span class="badge-cat">{{ prod.category_name }}</span>
             </td>
             <td class="prod-unit">{{ prod.unit }}</td>
-            <td class="prod-price">{{ formatNaira(prod.unit_price_kobo) }}</td>
+            <td class="prod-price-cell">
+              <template v-if="prod.discount_price_kobo && prod.discount_price_kobo > 0 && prod.discount_price_kobo < prod.unit_price_kobo">
+                <div class="price-discounted">{{ formatNaira(prod.discount_price_kobo) }}</div>
+                <div class="price-original">
+                  <del>{{ formatNaira(prod.unit_price_kobo) }}</del>
+                  <span class="discount-pill">-{{ prod.discount_percent ?? Math.round(((prod.unit_price_kobo - prod.discount_price_kobo) / prod.unit_price_kobo) * 100) }}%</span>
+                </div>
+              </template>
+              <template v-else>
+                <div class="prod-price">{{ formatNaira(prod.unit_price_kobo) }}</div>
+              </template>
+            </td>
+            <td>
+              <span class="badge-tax" :class="prod.is_tax_exempt ? 'badge-tax--exempt' : 'badge-tax--standard'">
+                {{ getTaxStatusLabel(prod) }}
+              </span>
+            </td>
             <td>{{ prod.min_order_quantity }}</td>
             <td>
               <button
@@ -652,6 +723,72 @@ async function submitAddCategory(): Promise<void> {
                 class="field-input"
                 required
               />
+            </div>
+          </div>
+
+          <div class="discount-config-card">
+            <div class="discount-toggle-row">
+              <label class="checkbox-label">
+                <input v-model="addForm.has_discount" type="checkbox" />
+                <span class="discount-toggle-text">Apply promotional discount / slash price</span>
+              </label>
+              <span
+                v-if="addForm.has_discount && addForm.price_naira && addForm.discount_naira && addForm.discount_naira < addForm.price_naira"
+                class="discount-savings-badge"
+              >
+                Save ₦{{ (addForm.price_naira - addForm.discount_naira).toLocaleString() }} ({{ computeDiscountPercent(addForm.price_naira, addForm.discount_naira) }}% OFF)
+              </span>
+            </div>
+
+            <div v-if="addForm.has_discount" class="form-row discount-fields-row">
+              <div class="form-group flex-1">
+                <label class="form-label" for="add-discount-price">Discounted Price (₦ Naira) *</label>
+                <input
+                  id="add-discount-price"
+                  v-model.number="addForm.discount_naira"
+                  type="number"
+                  min="1"
+                  :max="addForm.price_naira ? addForm.price_naira - 1 : undefined"
+                  step="1"
+                  class="field-input"
+                  placeholder="e.g. 82000"
+                  required
+                />
+              </div>
+              <div class="form-group flex-1 discount-calc-preview">
+                <span class="discount-preview-label">Live customer price</span>
+                <p class="discount-preview-value">
+                  {{ addForm.discount_naira ? formatNaira(addForm.discount_naira * 100) : '—' }}
+                  <span v-if="addForm.unit" class="discount-preview-unit">/ {{ addForm.unit }}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="tax-config-card">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label class="form-label">Tax / VAT Classification</label>
+                <div class="tax-radio-group">
+                  <label class="radio-label">
+                    <input v-model="addForm.is_tax_exempt" :value="false" type="radio" name="add-tax-status" />
+                    <span>Standard 7.5% Nigerian VAT</span>
+                  </label>
+                  <label class="radio-label">
+                    <input v-model="addForm.is_tax_exempt" :value="true" type="radio" name="add-tax-status" />
+                    <span>VAT-Exempt (0% — basic foodstuff produce)</span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group flex-1 tax-calc-preview">
+                <span class="tax-preview-label">Applied VAT Rate</span>
+                <p class="tax-preview-value">
+                  {{ addForm.is_tax_exempt ? '0% VAT (Exempt)' : '7.5% Statutory VAT' }}
+                </p>
+                <p class="tax-preview-note">
+                  {{ addForm.is_tax_exempt ? 'Zero-rated under Nigerian VAT regulations for unprocessed primary agricultural foodstuff.' : '7.5% VAT will be collected at checkout and itemized on invoice.' }}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -825,6 +962,72 @@ async function submitAddCategory(): Promise<void> {
                 class="field-input"
                 required
               />
+            </div>
+          </div>
+
+          <div class="discount-config-card">
+            <div class="discount-toggle-row">
+              <label class="checkbox-label">
+                <input v-model="editForm.has_discount" type="checkbox" />
+                <span class="discount-toggle-text">Apply promotional discount / slash price</span>
+              </label>
+              <span
+                v-if="editForm.has_discount && editForm.price_naira && editForm.discount_naira && editForm.discount_naira < editForm.price_naira"
+                class="discount-savings-badge"
+              >
+                Save ₦{{ (editForm.price_naira - editForm.discount_naira).toLocaleString() }} ({{ computeDiscountPercent(editForm.price_naira, editForm.discount_naira) }}% OFF)
+              </span>
+            </div>
+
+            <div v-if="editForm.has_discount" class="form-row discount-fields-row">
+              <div class="form-group flex-1">
+                <label class="form-label" for="edit-discount-price">Discounted Price (₦ Naira) *</label>
+                <input
+                  id="edit-discount-price"
+                  v-model.number="editForm.discount_naira"
+                  type="number"
+                  min="1"
+                  :max="editForm.price_naira ? editForm.price_naira - 1 : undefined"
+                  step="1"
+                  class="field-input"
+                  placeholder="e.g. 82000"
+                  required
+                />
+              </div>
+              <div class="form-group flex-1 discount-calc-preview">
+                <span class="discount-preview-label">Live customer price</span>
+                <p class="discount-preview-value">
+                  {{ editForm.discount_naira ? formatNaira(editForm.discount_naira * 100) : '—' }}
+                  <span v-if="editForm.unit" class="discount-preview-unit">/ {{ editForm.unit }}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="tax-config-card">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label class="form-label">Tax / VAT Classification</label>
+                <div class="tax-radio-group">
+                  <label class="radio-label">
+                    <input v-model="editForm.is_tax_exempt" :value="false" type="radio" name="edit-tax-status" />
+                    <span>Standard 7.5% Nigerian VAT</span>
+                  </label>
+                  <label class="radio-label">
+                    <input v-model="editForm.is_tax_exempt" :value="true" type="radio" name="edit-tax-status" />
+                    <span>VAT-Exempt (0% — basic foodstuff produce)</span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group flex-1 tax-calc-preview">
+                <span class="tax-preview-label">Applied VAT Rate</span>
+                <p class="tax-preview-value">
+                  {{ editForm.is_tax_exempt ? '0% VAT (Exempt)' : '7.5% Statutory VAT' }}
+                </p>
+                <p class="tax-preview-note">
+                  {{ editForm.is_tax_exempt ? 'Zero-rated under Nigerian VAT regulations for unprocessed primary agricultural foodstuff.' : '7.5% VAT will be collected at checkout and itemized on invoice.' }}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -1228,6 +1431,192 @@ async function submitAddCategory(): Promise<void> {
 .prod-price {
   font-family: var(--font-label);
   font-weight: 500;
+}
+
+.prod-price-cell {
+  white-space: nowrap;
+}
+
+.price-discounted {
+  font-family: var(--font-label);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.price-original {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+}
+
+.price-original del {
+  color: var(--color-secondary);
+}
+
+.discount-pill {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: var(--rounded-sm);
+  background-color: color-mix(in srgb, var(--color-secondary) 22%, transparent);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.discount-config-card {
+  padding: 12px 14px;
+  background-color: var(--color-neutral);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.discount-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.discount-toggle-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+.discount-savings-badge {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: var(--rounded-sm);
+  background-color: color-mix(in srgb, var(--color-secondary) 25%, transparent);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+}
+
+.discount-fields-row {
+  margin-top: 10px;
+  margin-bottom: 0;
+  align-items: flex-end;
+}
+
+.discount-calc-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: var(--rounded-md);
+  background-color: var(--color-surface);
+  border: 1px dashed var(--color-border);
+}
+
+.discount-preview-label {
+  font-family: var(--font-label);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.discount-preview-value {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.discount-preview-unit {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-secondary);
+}
+
+.badge-tax {
+  display: inline-block;
+  font-family: var(--font-label);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--rounded-sm);
+  letter-spacing: 0.02em;
+}
+
+.badge-tax--standard {
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+.badge-tax--exempt {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.tax-config-card {
+  margin-bottom: var(--spacing-md);
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  background-color: var(--color-neutral);
+}
+
+.tax-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.radio-label input[type="radio"] {
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.tax-calc-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: var(--rounded-md);
+  background-color: var(--color-surface);
+  border: 1px dashed var(--color-border);
+}
+
+.tax-preview-label {
+  font-family: var(--font-label);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.tax-preview-value {
+  margin: 2px 0 0;
+  font-family: var(--font-label);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.tax-preview-note {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  color: var(--color-secondary);
+  line-height: 1.3;
 }
 
 .badge-stock {

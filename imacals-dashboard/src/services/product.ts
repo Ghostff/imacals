@@ -20,8 +20,12 @@ export interface Product {
   description: string | null;
   unit: string;
   unit_price_kobo: number;
+  discount_price_kobo?: number | null;
+  discount_percent?: number | null;
   min_order_quantity: number;
   in_stock: boolean;
+  is_tax_exempt?: boolean;
+  tax_rate_basis_points?: number;
   image_url: string | null;
   images?: ProductImageItem[];
   created_at: string;
@@ -34,8 +38,11 @@ export interface CreateProductPayload {
   category_id: string;
   unit: string;
   unit_price_kobo: number;
+  discount_price_kobo?: number | null;
   min_order_quantity?: number;
   in_stock?: boolean;
+  is_tax_exempt?: boolean;
+  tax_rate_basis_points?: number;
   description?: string;
   domain_id?: string;
 }
@@ -46,8 +53,11 @@ export interface UpdateProductPayload {
   category_id?: string;
   unit?: string;
   unit_price_kobo?: number;
+  discount_price_kobo?: number | null;
   min_order_quantity?: number;
   in_stock?: boolean;
+  is_tax_exempt?: boolean;
+  tax_rate_basis_points?: number;
   description?: string;
   domain_id?: string;
 }
@@ -59,6 +69,30 @@ export function formatNaira(kobo: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(Math.round(kobo / 100));
+}
+
+export function getEffectivePriceKobo(prod: { unit_price_kobo: number; discount_price_kobo?: number | null }): number {
+  return prod.discount_price_kobo && prod.discount_price_kobo > 0 && prod.discount_price_kobo < prod.unit_price_kobo
+    ? prod.discount_price_kobo
+    : prod.unit_price_kobo;
+}
+
+export function getDiscountPercent(prod: { unit_price_kobo: number; discount_price_kobo?: number | null }): number | null {
+  if (!prod.discount_price_kobo || prod.discount_price_kobo <= 0 || prod.discount_price_kobo >= prod.unit_price_kobo) {
+    return null;
+  }
+  return Math.round(((prod.unit_price_kobo - prod.discount_price_kobo) / prod.unit_price_kobo) * 100);
+}
+
+export function getTaxRatePercent(prod: { is_tax_exempt?: boolean; tax_rate_basis_points?: number }): number {
+  if (prod.is_tax_exempt) return 0;
+  return ((prod.tax_rate_basis_points ?? 750) / 100);
+}
+
+export function getTaxStatusLabel(prod: { is_tax_exempt?: boolean; tax_rate_basis_points?: number }): string {
+  if (prod.is_tax_exempt) return '0% (Exempt)';
+  const rate = getTaxRatePercent(prod);
+  return `${rate}% VAT`;
 }
 
 export const productService = {

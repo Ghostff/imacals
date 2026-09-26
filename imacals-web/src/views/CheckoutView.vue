@@ -3,13 +3,20 @@ import { ref, computed, onMounted, watch, type Ref, type ComputedRef } from 'vue
 import { RouterLink } from 'vue-router';
 import { useCart } from '@/composables/useCart';
 import { useAuth } from '@/composables/useAuth';
-import { formatNaira } from '@/services/catalog';
+import { formatNaira, effectivePriceKobo, discountSavingsKobo } from '@/services/catalog';
 import { orderService, type PlaceOrderInput, type PlacedOrder } from '@/services/order';
+import { customerAddressService, type CustomerAddress } from '@/services/customerAddress';
+import { customerOrderService } from '@/services/customerOrder';
+import {
+  computeOrderPricing,
+  type ShippingMethod,
+  type OrderPricingBreakdown,
+} from '@/services/shipping';
 import { ApiException } from '@/services/api';
 import { SITE } from '@/site';
 
-const { lines, subtotalKobo, clear } = useCart();
-const { user, isAuthenticated } = useAuth();
+const { lines, clear } = useCart();
+const { user, isAuthenticated, updateProfile } = useAuth();
 
 const form: Ref<Omit<PlaceOrderInput, 'lines'>> = ref({
   customer_name: '',
@@ -21,12 +28,56 @@ const form: Ref<Omit<PlaceOrderInput, 'lines'>> = ref({
   note: '',
 });
 
+const selectedShippingMethod: Ref<ShippingMethod> = ref('standard');
+
+const pricingBreakdown: ComputedRef<OrderPricingBreakdown> = computed(() => {
+  return computeOrderPricing(
+    lines.value,
+    form.value.state,
+    form.value.city,
+    selectedShippingMethod.value,
+  );
+});
+
+const saveAddressToDashboard: Ref<boolean> = ref(true);
+const savedAddresses: Ref<CustomerAddress[]> = ref([]);
+
+async function loadSavedAddresses(): Promise<void> {
+  if (user.value) {
+    const fullName = `${user.value.first_name ?? ''} ${user.value.last_name ?? ''}`.trim();
+    try {
+      savedAddresses.value = await customerAddressService.listAddresses(user.value.id, {
+        name: fullName || undefined,
+        phone: user.value.phone || undefined,
+      });
+      const defaultAddr = savedAddresses.value.find((a) => a.is_default) || savedAddresses.value[0];
+      if (defaultAddr && !form.value.delivery_address) {
+        applySavedAddress(defaultAddr);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+function applySavedAddress(addr: CustomerAddress): void {
+  form.value.delivery_address = addr.street;
+  form.value.city = addr.city;
+  form.value.state = addr.state;
+  if (addr.phone && !form.value.phone) form.value.phone = addr.phone;
+  if (addr.recipient_name && !form.value.customer_name) form.value.customer_name = addr.recipient_name;
+  if (addr.instructions || addr.landmark) {
+    form.value.note = addr.instructions || addr.landmark || '';
+  }
+}
+
 function autofillFromUser(): void {
   if (user.value) {
     const fullName = `${user.value.first_name ?? ''} ${user.value.last_name ?? ''}`.trim();
-    if (fullName && !form.value.customer_name) form.value.customer_name = fullName;
-    if (user.value.email && !form.value.email) form.value.email = user.value.email;
-    if (user.value.phone && !form.value.phone) form.value.phone = user.value.phone;
+    if (fullName) form.value.customer_name = fullName;
+    if (user.value.email) form.value.email = user.value.email;
+    if (user.value.phone) form.value.phone = user.value.phone;
+    loadSavedAddresses();
   }
 }
 
@@ -52,13 +103,88 @@ async function submit(): Promise<void> {
   error.value      = null;
   submitting.value = true;
   try {
+    const pricing = pricingBreakdown.value;
     const result = await orderService.place({
       ...form.value,
+      shipping_method: selectedShippingMethod.value,
+      delivery_fee_kobo: pricing.shipping_fee_kobo,
+      tax_kobo: pricing.tax_kobo,
       email: form.value.email?.trim() || undefined,
       note: form.value.note?.trim() || undefined,
       lines: lines.value.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
     });
-    placed.value = result;
+    placed.value = {
+      ...result,
+      total_kobo: pricing.total_kobo,
+      delivery_fee_kobo: pricing.shipping_fee_kobo,
+      tax_kobo: pricing.tax_kobo,
+      shipping_method: selectedShippingMethod.value,
+    };
+
+    // Record order to customer dashboard
+    try {
+      const catalogProducts = lines.value.map((l) => ({
+        id: l.product.id,
+        name: l.product.name,
+        slug: l.product.slug,
+        unit: l.product.unit,
+        unit_price_kobo: effectivePriceKobo(l.product),
+        original_unit_price_kobo: l.product.unit_price_kobo,
+        discount_kobo: discountSavingsKobo(l.product),
+      }));
+      await customerOrderService.recordPlacedOrder(
+        {
+          ...placed.value,
+          shipping_zone_name: pricing.shipping_zone_label,
+        },
+        {
+          ...form.value,
+          lines: lines.value.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
+        },
+        catalogProducts,
+        user.value?.id,
+      );
+    } catch {
+      // Non-fatal
+    }
+
+    // Save/update this address as the live default address on the customer dashboard
+    if (user.value && saveAddressToDashboard.value) {
+      try {
+        await customerAddressService.saveOrUpdateFromCheckout(
+          {
+            recipient_name: form.value.customer_name.trim(),
+            phone: form.value.phone.trim(),
+            street: form.value.delivery_address.trim(),
+            city: form.value.city.trim(),
+            state: form.value.state.trim(),
+            landmark: form.value.note?.trim() || undefined,
+            instructions: form.value.note?.trim() || undefined,
+            is_default: true,
+          },
+          user.value.id,
+        );
+      } catch (err) {
+        console.warn('Could not save live checkout address:', err);
+      }
+
+      // Sync customer contact details live if they provided name or phone
+      try {
+        const rawName = form.value.customer_name.trim();
+        const spaceIdx = rawName.indexOf(' ');
+        const fname = spaceIdx > 0 ? rawName.slice(0, spaceIdx) : rawName;
+        const lname = spaceIdx > 0 ? rawName.slice(spaceIdx + 1).trim() : user.value.last_name || '';
+        await updateProfile({
+          first_name: fname || user.value.first_name,
+          last_name: lname,
+          email: form.value.email?.trim() || user.value.email,
+          phone: form.value.phone.trim() || user.value.phone || undefined,
+        });
+      } catch (err) {
+        console.warn('Could not sync user profile from checkout:', err);
+      }
+    }
+
     clear();
   } catch (e: unknown) {
     error.value = e instanceof ApiException || e instanceof Error
@@ -75,11 +201,14 @@ async function submit(): Promise<void> {
     <div v-if="placed" class="confirmed">
       <p class="eyebrow">Order placed</p>
       <h1 class="section-title">Reference {{ placed.reference }}</h1>
-      <p class="confirmed-copy">
+          <p class="confirmed-copy">
         We have your order and the dispatch desk will call {{ form.phone }} to confirm delivery.
-        Total {{ formatNaira(placed.total_kobo) }}.
+        Total {{ formatNaira(placed.total_kobo) }} (includes {{ placed.tax_kobo ? formatNaira(placed.tax_kobo) : '₦0' }} VAT and {{ placed.delivery_fee_kobo > 0 ? formatNaira(placed.delivery_fee_kobo) : 'Free' }} delivery).
       </p>
-      <RouterLink class="btn-primary confirmed-cta" to="/track">Track this order</RouterLink>
+      <div class="confirmed-actions">
+        <RouterLink class="btn-primary confirmed-cta" to="/track">Track this order</RouterLink>
+        <RouterLink class="btn-secondary confirmed-cta" to="/account?tab=orders">Customer Dashboard</RouterLink>
+      </div>
     </div>
 
     <template v-else>
@@ -100,6 +229,21 @@ async function submit(): Promise<void> {
             <RouterLink class="inline-link" to="/login?redirect=/checkout">
               Sign in to autofill your details
             </RouterLink>
+          </div>
+
+          <div v-else-if="savedAddresses.length > 0" class="saved-addrs-picker">
+            <span class="picker-label">Deliver to saved address:</span>
+            <div class="picker-pills">
+              <button
+                v-for="addr in savedAddresses"
+                :key="addr.id"
+                class="picker-pill"
+                type="button"
+                @click="applySavedAddress(addr)"
+              >
+                {{ addr.label }} ({{ addr.city }})
+              </button>
+            </div>
           </div>
 
           <div class="field-grid">
@@ -137,6 +281,67 @@ async function submit(): Promise<void> {
               <label class="field-label" for="note">Landmark or delivery note (optional)</label>
               <textarea id="note" v-model="form.note" class="field-input note" rows="3"></textarea>
             </div>
+
+            <div v-if="isAuthenticated" class="field field--wide checkbox-field">
+              <label class="checkbox-label">
+                <input v-model="saveAddressToDashboard" type="checkbox" />
+                <span>Save as my live dispatch location on my customer dashboard</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Shipping / Fulfilment Method Selection -->
+          <div class="shipping-section">
+            <div class="shipping-section-head">
+              <span class="eyebrow">Dispatch & Fulfilment</span>
+              <h2 class="shipping-section-title">Select delivery method from Aba Warehouse</h2>
+              <p class="shipping-zone-badge">
+                <span class="zone-pin">📍</span>
+                <span>Destination Zone: <strong>{{ pricingBreakdown.shipping_zone_label }}</strong> ({{ form.city || 'Aba' }}, {{ form.state }})</span>
+              </p>
+            </div>
+
+            <!-- Free Wholesale Threshold Notice -->
+            <div
+              v-if="pricingBreakdown.is_free_shipping"
+              class="free-shipping-unlocked"
+            >
+              🎉 <strong>Free Wholesale Delivery Unlocked!</strong> Your order qualifies for zero dispatch fees in {{ pricingBreakdown.shipping_zone_label }}.
+            </div>
+            <div
+              v-else-if="pricingBreakdown.subtotal_kobo > 0 && selectedShippingMethod !== 'pickup'"
+              class="free-shipping-progress"
+            >
+              Add <strong>{{ formatNaira(pricingBreakdown.free_shipping_threshold_kobo - pricingBreakdown.subtotal_kobo) }}</strong> more to unlock <strong>Free Wholesale Delivery</strong> in this zone.
+            </div>
+
+            <!-- Shipping Methods Grid -->
+            <div class="shipping-methods-grid">
+              <label
+                v-for="method in pricingBreakdown.available_methods"
+                :key="method.id"
+                class="shipping-method-card"
+                :class="{ 'shipping-method-card--selected': selectedShippingMethod === method.id }"
+              >
+                <input
+                  v-model="selectedShippingMethod"
+                  class="shipping-method-radio"
+                  type="radio"
+                  name="shipping_method"
+                  :value="method.id"
+                />
+                <div class="shipping-method-info">
+                  <div class="method-title-row">
+                    <span class="method-name">{{ method.name }}</span>
+                    <span class="method-fee" :class="{ 'method-fee--free': method.fee_kobo === 0 }">
+                      {{ method.fee_kobo === 0 ? 'FREE' : formatNaira(method.fee_kobo) }}
+                    </span>
+                  </div>
+                  <p class="method-desc">{{ method.description }}</p>
+                  <span class="method-eta">⏱ ETA: {{ method.estimated_delivery }}</span>
+                </div>
+              </label>
+            </div>
           </div>
 
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>
@@ -153,22 +358,55 @@ async function submit(): Promise<void> {
         </form>
 
         <aside class="summary">
-          <h2 class="summary-title">Your order</h2>
+          <h2 class="summary-title">Order summary</h2>
 
           <div v-for="line in lines" :key="line.product.id" class="summary-row">
             <span class="summary-label">{{ line.quantity }} × {{ line.product.name }}</span>
-            <span class="summary-value">{{ formatNaira(line.product.unit_price_kobo * line.quantity) }}</span>
+            <span class="summary-value">{{ formatNaira(effectivePriceKobo(line.product) * line.quantity) }}</span>
+          </div>
+
+          <div v-if="pricingBreakdown.total_savings_kobo > 0" class="summary-row">
+            <span class="summary-label">Regular subtotal</span>
+            <span class="summary-value"><del>{{ formatNaira(pricingBreakdown.original_subtotal_kobo) }}</del></span>
+          </div>
+
+          <div v-if="pricingBreakdown.total_savings_kobo > 0" class="summary-row summary-row--savings">
+            <span class="summary-label">Promotional savings</span>
+            <span class="summary-value">-{{ formatNaira(pricingBreakdown.total_savings_kobo) }}</span>
+          </div>
+
+          <div class="summary-row">
+            <span class="summary-label">Items subtotal</span>
+            <span class="summary-value">{{ formatNaira(pricingBreakdown.subtotal_kobo) }}</span>
+          </div>
+
+          <div class="summary-row summary-row--tax">
+            <span class="summary-label">VAT (7.5% Nigerian Statutory)</span>
+            <span class="summary-value">
+              {{ pricingBreakdown.tax_kobo > 0 ? formatNaira(pricingBreakdown.tax_kobo) : '₦0 (Exempt)' }}
+            </span>
+          </div>
+          <div v-if="pricingBreakdown.exempt_subtotal_kobo > 0" class="tax-exempt-note">
+            Includes {{ formatNaira(pricingBreakdown.exempt_subtotal_kobo) }} in VAT-exempt raw agricultural foodstuff (0% VAT)
+          </div>
+
+          <div class="summary-row">
+            <span class="summary-label">
+              Delivery ({{ selectedShippingMethod === 'express' ? 'Express Dispatch' : selectedShippingMethod === 'pickup' ? 'Warehouse Pickup' : 'Standard Dispatch' }})
+            </span>
+            <span class="summary-value" :class="{ 'summary-highlight': pricingBreakdown.shipping_fee_kobo === 0 }">
+              {{ pricingBreakdown.shipping_fee_kobo === 0 ? '₦0 (Free)' : formatNaira(pricingBreakdown.shipping_fee_kobo) }}
+            </span>
           </div>
 
           <div class="summary-row summary-row--total">
-            <span class="summary-label">Subtotal</span>
-            <span class="summary-value">{{ formatNaira(subtotalKobo) }}</span>
+            <span class="summary-label">Total to pay</span>
+            <span class="summary-value summary-value--total">{{ formatNaira(pricingBreakdown.total_kobo) }}</span>
           </div>
 
           <p class="summary-note">
-            Delivery is quoted once we have the destination — from
-            {{ SITE.warehouse.city }}, {{ SITE.coverage[0].eta.toLowerCase() }} within
-            {{ SITE.coverage[0].area.toLowerCase() }}.
+            Orders are picked and dispatched from our Aba central depot (Factory Rd).
+            Driver calls {{ form.phone || 'your phone number' }} before departure.
           </p>
         </aside>
       </div>
@@ -290,6 +528,12 @@ async function submit(): Promise<void> {
   margin: var(--spacing-md) 0;
 }
 
+.confirmed-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
 .confirmed-cta,
 .empty-cta {
   display: inline-block;
@@ -297,9 +541,236 @@ async function submit(): Promise<void> {
   margin-top: var(--spacing-md);
 }
 
+.saved-addrs-picker {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.picker-label {
+  font-family: var(--font-label);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.picker-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.picker-pill {
+  background-color: var(--color-neutral);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-sm);
+  color: var(--color-primary);
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.picker-pill:hover {
+  border-color: var(--color-primary);
+}
+
 .inline-link {
   color: var(--color-primary);
   text-decoration: none;
   border-bottom: 1px solid var(--color-border);
+}
+
+.checkbox-field {
+  margin-top: 4px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: var(--font-label);
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+}
+
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--color-tertiary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.summary-row--savings {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.summary-row--savings .summary-value {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Shipping Fulfilment Selector */
+.shipping-section {
+  margin-top: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+}
+
+.shipping-section-head {
+  margin-bottom: var(--spacing-sm);
+}
+
+.shipping-section-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 4px 0;
+}
+
+.shipping-zone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--color-secondary);
+  background-color: var(--color-neutral);
+  padding: 3px 8px;
+  border-radius: var(--rounded-sm);
+  border: 1px solid var(--color-divider);
+  margin-top: 4px;
+}
+
+.free-shipping-unlocked {
+  background-color: rgba(46, 125, 50, 0.08);
+  border: 1px solid rgba(46, 125, 50, 0.3);
+  color: #2e7d32;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: var(--rounded-sm);
+  margin: 10px 0;
+}
+
+.free-shipping-progress {
+  background-color: rgba(22, 101, 52, 0.05);
+  border: 1px dashed var(--color-border);
+  color: var(--color-secondary);
+  font-size: 0.78rem;
+  padding: 8px 12px;
+  border-radius: var(--rounded-sm);
+  margin: 10px 0;
+}
+
+.shipping-methods-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.shipping-method-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-md);
+  background-color: var(--color-background);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.shipping-method-card:hover {
+  border-color: var(--color-primary);
+}
+
+.shipping-method-card--selected {
+  border-color: var(--color-primary);
+  background-color: var(--color-neutral);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.shipping-method-radio {
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.shipping-method-info {
+  flex: 1;
+}
+
+.method-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.method-name {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--color-primary);
+}
+
+.method-fee {
+  font-family: var(--font-label);
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--color-primary);
+}
+
+.method-fee--free {
+  color: #2e7d32;
+}
+
+.method-desc {
+  font-size: 0.78rem;
+  color: var(--color-secondary);
+  margin: 2px 0 4px;
+  line-height: 1.35;
+}
+
+.method-eta {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-family: var(--font-label);
+  color: var(--color-secondary);
+  background-color: var(--color-surface);
+  padding: 2px 6px;
+  border-radius: var(--rounded-sm);
+  border: 1px solid var(--color-divider);
+}
+
+.tax-exempt-note {
+  font-size: 0.72rem;
+  color: var(--color-secondary);
+  padding: 3px 0 6px;
+  line-height: 1.3;
+}
+
+.summary-value--total {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.summary-highlight {
+  color: #2e7d32;
+  font-weight: 600;
 }
 </style>

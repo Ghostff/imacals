@@ -44,6 +44,19 @@ impl ProductService {
         let min_order_qty = schema.min_order_quantity.unwrap_or(1).max(1);
         let in_stock = schema.in_stock.unwrap_or(true);
 
+        // Validate discount pricing if provided
+        if let Some(discount) = schema.discount_price_kobo {
+            if discount <= 0 || discount >= schema.unit_price_kobo {
+                return Err(ErrorBag::Validation {
+                    field: "discount_price_kobo".into(),
+                    message: "Discount price must be greater than zero and strictly less than the regular unit price".into(),
+                });
+            }
+        }
+
+        let is_tax_exempt = schema.is_tax_exempt.unwrap_or(false);
+        let tax_rate_basis_points = schema.tax_rate_basis_points.unwrap_or(750).max(0);
+
         let product = ProductRepository::create(
             pool,
             organization_id,
@@ -55,8 +68,11 @@ impl ProductService {
             schema.description.as_deref(),
             &schema.unit,
             schema.unit_price_kobo,
+            schema.discount_price_kobo,
             min_order_qty,
             in_stock,
+            is_tax_exempt,
+            tax_rate_basis_points,
         )
         .await
         .map_err(|e| {
@@ -129,12 +145,44 @@ impl ProductService {
             product.unit_price_kobo = price;
         }
 
+        if let Some(ref discount_opt) = schema.discount_price_kobo {
+            match discount_opt {
+                Some(discount) => {
+                    if *discount <= 0 || *discount >= product.unit_price_kobo {
+                        return Err(ErrorBag::Validation {
+                            field: "discount_price_kobo".into(),
+                            message: "Discount price must be greater than zero and strictly less than the regular unit price".into(),
+                        });
+                    }
+                    product.discount_price_kobo = Some(*discount);
+                }
+                None => {
+                    product.discount_price_kobo = None;
+                }
+            }
+        } else if let Some(existing_discount) = product.discount_price_kobo {
+            if existing_discount >= product.unit_price_kobo {
+                return Err(ErrorBag::Validation {
+                    field: "discount_price_kobo".into(),
+                    message: "Existing discount price cannot be greater than or equal to new unit price".into(),
+                });
+            }
+        }
+
         if let Some(moq) = schema.min_order_quantity {
             product.min_order_quantity = moq.max(1);
         }
 
         if let Some(in_stock) = schema.in_stock {
             product.in_stock = in_stock;
+        }
+
+        if let Some(is_tax_exempt) = schema.is_tax_exempt {
+            product.is_tax_exempt = is_tax_exempt;
+        }
+
+        if let Some(tax_rate_basis_points) = schema.tax_rate_basis_points {
+            product.tax_rate_basis_points = tax_rate_basis_points.max(0);
         }
 
         ProductRepository::update(pool, &product)

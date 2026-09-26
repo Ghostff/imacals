@@ -12,9 +12,16 @@ export interface Product {
   // The unit a single quantity buys — "carton", "bag (50kg)", "piece".
   unit: string;
   unit_price_kobo: number;
+  // Promotional slash price in kobo. When set, customers pay this price instead of unit_price_kobo.
+  discount_price_kobo?: number | null;
+  discount_percent?: number | null;
   // Minimum order quantity. Wholesale lines often cannot be bought as singles.
   min_order_quantity: number;
   in_stock: boolean;
+  // Whether the item is exempt from Nigerian VAT (e.g. raw agricultural staples).
+  is_tax_exempt?: boolean;
+  // Tax rate in basis points (750 = 7.50% statutory Nigerian VAT).
+  tax_rate_basis_points?: number;
   image_url: string | null;
   images?: string[];
 }
@@ -33,6 +40,54 @@ export function formatNaira(kobo: number): string {
   }).format(Math.round(kobo / 100));
 }
 
+// Returns true if the product has an active promotional discount price strictly lower than regular price.
+export function isDiscounted(product: Product): boolean {
+  return typeof product.discount_price_kobo === 'number'
+    && product.discount_price_kobo > 0
+    && product.discount_price_kobo < product.unit_price_kobo;
+}
+
+// The effective unit price charged to the customer in kobo.
+export function effectivePriceKobo(product: Product): number {
+  return isDiscounted(product) ? product.discount_price_kobo! : product.unit_price_kobo;
+}
+
+// Discount percentage off unit price rounded to nearest whole integer.
+export function discountPercent(product: Product): number | null {
+  if (typeof product.discount_percent === 'number' && product.discount_percent > 0) {
+    return product.discount_percent;
+  }
+  if (!isDiscounted(product)) return null;
+  const diff = product.unit_price_kobo - product.discount_price_kobo!;
+  return Math.round((diff / product.unit_price_kobo) * 100);
+}
+
+// Money saved per unit in kobo.
+export function discountSavingsKobo(product: Product): number {
+  return product.unit_price_kobo - effectivePriceKobo(product);
+}
+
+// Returns true if the product is exempt from Nigerian VAT (e.g. raw foodstuff produce).
+export function isTaxExempt(product: Product): boolean {
+  return product.is_tax_exempt === true;
+}
+
+// Statutory tax rate percent (0% if exempt, else 7.5% Nigerian VAT).
+export function taxRatePercent(product: Product): number {
+  if (isTaxExempt(product)) return 0;
+  return typeof product.tax_rate_basis_points === 'number'
+    ? product.tax_rate_basis_points / 100
+    : 7.5;
+}
+
+// Line tax in integer kobo: 0 if exempt, else (effective_price * quantity * rate + 5000) / 10000.
+export function lineTaxKobo(product: Product, quantity: number): number {
+  if (isTaxExempt(product) || quantity <= 0) return 0;
+  const bps = typeof product.tax_rate_basis_points === 'number' ? product.tax_rate_basis_points : 750;
+  const lineEffective = effectivePriceKobo(product) * quantity;
+  return Math.round((lineEffective * bps) / 10_000);
+}
+
 // ── Preview catalogue ─────────────────────────────────────────────────────
 // The products API does not exist yet (see docs/business_logic.md §3). Until it lands, the
 // storefront renders this sample so the layout, cart and checkout flow can be exercised end to
@@ -43,14 +98,20 @@ const PREVIEW_CATALOG: Product[] = [
     id: 'prev-1', slug: 'rice-50kg', name: 'Long Grain Rice — 50kg Bag',
     description: 'Parboiled long grain rice, 50kg bag. Sold by the bag, minimum five bags.',
     category_slug: 'foodstuff', category_name: 'Foodstuff',
-    unit: 'bag (50kg)', unit_price_kobo: 8_950_000, min_order_quantity: 5,
+    unit: 'bag (50kg)', unit_price_kobo: 8_950_000,
+    discount_price_kobo: 8_200_000, discount_percent: 8,
+    is_tax_exempt: true, tax_rate_basis_points: 0,
+    min_order_quantity: 5,
     in_stock: true, image_url: null,
   },
   {
     id: 'prev-2', slug: 'vegetable-oil-25l', name: 'Vegetable Oil — 25L Keg',
     description: 'Refined vegetable oil in a 25 litre keg. Sold by the keg.',
     category_slug: 'foodstuff', category_name: 'Foodstuff',
-    unit: 'keg (25L)', unit_price_kobo: 5_400_000, min_order_quantity: 2,
+    unit: 'keg (25L)', unit_price_kobo: 5_400_000,
+    discount_price_kobo: 4_860_000, discount_percent: 10,
+    is_tax_exempt: false, tax_rate_basis_points: 750,
+    min_order_quantity: 2,
     in_stock: true, image_url: null,
   },
   {
@@ -58,6 +119,7 @@ const PREVIEW_CATALOG: Product[] = [
     description: 'Carton of 24 × 900g detergent sachets.',
     category_slug: 'household', category_name: 'Household',
     unit: 'carton (24)', unit_price_kobo: 3_120_000, min_order_quantity: 1,
+    is_tax_exempt: false, tax_rate_basis_points: 750,
     in_stock: true, image_url: null,
   },
   {
@@ -65,6 +127,7 @@ const PREVIEW_CATALOG: Product[] = [
     description: 'Carton of 48 multipurpose bar soaps.',
     category_slug: 'household', category_name: 'Household',
     unit: 'carton (48)', unit_price_kobo: 2_760_000, min_order_quantity: 1,
+    is_tax_exempt: false, tax_rate_basis_points: 750,
     in_stock: false, image_url: null,
   },
   {
@@ -72,6 +135,7 @@ const PREVIEW_CATALOG: Product[] = [
     description: 'Bag of 20 sachets, 50cl each. Sold by the bag.',
     category_slug: 'beverages', category_name: 'Beverages',
     unit: 'bag (20)', unit_price_kobo: 30_000, min_order_quantity: 20,
+    is_tax_exempt: false, tax_rate_basis_points: 750,
     in_stock: true, image_url: null,
   },
   {

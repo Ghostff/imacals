@@ -10,6 +10,15 @@ import { ApiException } from '@/services/api';
 const lists: Ref<WishlistSummary[]> = ref<WishlistSummary[]>([]);
 const loaded: Ref<boolean> = ref<boolean>(false);
 const loading: Ref<boolean> = ref<boolean>(false);
+const totalCount: Ref<number> = ref<number>(0);
+
+// Sign-out must not leave the previous customer's lists in the singleton cache.
+export function clearWishlist(): void {
+  lists.value = [];
+  loaded.value = false;
+  loading.value = false;
+  totalCount.value = 0;
+}
 
 export function useWishlist(): {
   lists: Ref<WishlistSummary[]>;

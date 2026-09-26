@@ -8,6 +8,18 @@ const RICE = {
   in_stock: true, image_url: null,
 };
 
+const DISCOUNTED_OIL = {
+  id: 'p2', slug: 'palm-oil-25l', name: 'Palm Oil — 25L Jerrycan',
+  description: 'Pure refined palm oil.',
+  category_slug: 'foodstuff', category_name: 'Foodstuff',
+  unit: 'can (25L)',
+  unit_price_kobo: 4_500_000,
+  discount_price_kobo: 3_800_000,
+  discount_percent: 16,
+  min_order_quantity: 1,
+  in_stock: true, image_url: null,
+};
+
 function ok(body: unknown) {
   return {
     status: 200,
@@ -18,13 +30,13 @@ function ok(body: unknown) {
 
 // Seeds one cart line without walking the product page each time. goto() first: localStorage is
 // unreachable on about:blank.
-async function seedCart(page: Page, quantity: number): Promise<void> {
-  await page.route('**/api/catalog/products*', (route: Route) => route.fulfill(ok([RICE])));
+async function seedCart(page: Page, quantity: number, product: unknown = RICE): Promise<void> {
+  await page.route('**/api/catalog/products*', (route: Route) => route.fulfill(ok([product])));
   await page.route('**/api/catalog/categories', (route: Route) => route.fulfill(ok([])));
   await page.goto('/catalog');
   await page.evaluate(
-    ([product, qty]) => localStorage.setItem('cart', JSON.stringify([{ product, quantity: qty }])),
-    [RICE, quantity] as const,
+    ([prod, qty]) => localStorage.setItem('cart', JSON.stringify([{ product: prod, quantity: qty }])),
+    [product, quantity] as const,
   );
 }
 
@@ -72,6 +84,21 @@ test.describe('Cart', () => {
     await page.goto('/cart');
     await page.reload();
     await expect(page.locator('.line')).toHaveCount(1);
+  });
+
+  test('discounted product shows discount pill, strikethrough original, and savings badge', async ({ page }) => {
+    await seedCart(page, 2, DISCOUNTED_OIL);
+    await page.goto('/cart');
+    // 2 × ₦38,000 = ₦76,000
+    await expect(page.locator('.line-total')).toContainText('76,000');
+    // Discount pill -16%
+    await expect(page.locator('.line-discount-tag')).toContainText('-16%');
+    // Strikethrough original price ₦45,000
+    await expect(page.locator('.line-price-original')).toContainText('45,000');
+    // Line savings badge: 2 × ₦7,000 = ₦14,000
+    await expect(page.locator('.line-savings')).toContainText('14,000');
+    // Summary promotional savings row
+    await expect(page.locator('.summary-row--savings .summary-value')).toContainText('14,000');
   });
 });
 
@@ -136,5 +163,12 @@ test.describe('Checkout', () => {
 
     await expect(page.locator('.form-error')).toHaveText('We do not deliver to that state yet.');
     await expect(page.locator('.cart-badge')).toHaveText('5');
+  });
+
+  test('checkout with discounted item shows promotional savings in order summary', async ({ page }) => {
+    await seedCart(page, 2, DISCOUNTED_OIL);
+    await page.goto('/checkout');
+    await expect(page.locator('.summary-row--savings')).toBeVisible();
+    await expect(page.locator('.summary-row--savings .summary-value')).toContainText('14,000');
   });
 });
